@@ -10,7 +10,7 @@
     # Neurocranium linear values (need Neurocranium_length)
     # Hyoid depression, retraction, the triangle and the pooled retraction ratio (need D_head, D_head_backup, Hyoid_rest_AP, Nasal_eye_AP_length)
     # Buccal volume, ceratohyal angles and predicted flow (need W_head, D_head, ceratohyal and neurocranium measurements)
-  # Kept: everything that needs no scan values, plus gape area (needs only W_jaw)
+  # Kept: everything that needs no scan values, plus gape area (needs only W_jaw, from Jaw_width_from_landmarks.R)
     # Gape and timing, gape area, protrusion, mandible tip displacement, neurocranium rotation,
       # maxilla angle and displacement, hyoid velocity and timing (zero-independent), ram, kinetic synchronization
   # Outputs are saved under different file names from the full script, so they can't overwrite each other
@@ -602,28 +602,22 @@ print(length(unique(finalData$Unique.ID)))
 # Anatomical measurements #
 ###########################
 
-  # Read in the measurements from the scans for each individual
-    # All lengths in mm, measured in a lateral (sagittal plane) view so they match what the camera sees
-    scanData <- read.csv('PATH/TO/scan_measurements.csv')        ### CHANGE path
+  # Read in the jaw widths for each individual
+    # Made by Jaw_width_from_landmarks.R (run that first)
+    # W_jaw = 2 * perpendicular distance from mandible landmark 3 to the midline plane through
+      # mandible landmarks 1 and 2 and premaxilla landmark 1 (mm)
+    scanData <- read.csv('C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/Grant Update Results/jaw_widths_F2.csv')
     
-    # Columns in the scan file that identify each individual
-    scanFamilyCol <- "Family"          ### CHANGE to the family column name in the scan file
-    scanAnimalCol <- "Animal.ID"       ### CHANGE to the animal ID column name in the scan file
+    # Columns in the jaw width file that identify each individual
+    scanFamilyCol <- "Family"
+    scanAnimalCol <- "Animal.ID"
     
-    # Measurements to pull from the scans
+    # Measurements to pull from the jaw width file
       # Left side = name it will have in finalData
-      # Right side = column name in the scan file
-      # Only mandible, maxilla and premaxilla landmarks are available
-      # Only W_jaw is used in calculations (gape area). The others are carried into finalData as anatomical phenotypes
+      # Right side = column name in the jaw width file
+      # W_jaw is the only scan measurement this version uses (gape area)
       scanColumns <- c(
-        # Mandible
-        Mandible_length            = "Mandible_length",          ### CHANGE  jaw joint to LJ tip, anteroposterior leg
-        RA_process_length          = "RA_process_length",        ### CHANGE  jaw joint to tip of retroarticular process
-        Mandible_input_length      = "Mandible_input_length",    ### CHANGE  jaw joint to ventral maxilla tip
-        W_jaw                      = "W_jaw",                    ### CHANGE  width of the tooth row (gape width)
-        # Maxilla and premaxilla
-        Maxilla_length             = "Maxilla_length",           ### CHANGE  ventral to dorsal tip of the maxilla
-        Length_premaxilla_asc_arm  = "Length_premaxilla_asc_arm" ### CHANGE  anterior tip of premaxilla to tip of ascending arm
+        W_jaw = "W_jaw"   # width of the tooth row (gape width), mm
       )
     
     # Check that every column exists in the scan file before going any further
@@ -667,9 +661,12 @@ print(length(unique(finalData$Unique.ID)))
     
     # Checks
       # How many videos are missing each measurement?
-    print(colSums(is.na(finalData[, names(scanColumns)])))
-      # Which individuals have no scan match at all?
-    print(unique(finalData$Unique.ID[is.na(finalData$Mandible_length)]))
+    print(colSums(is.na(finalData[, names(scanColumns), drop = FALSE])))
+      # Which individuals have no jaw width?
+    print(unique(finalData$Unique.ID[is.na(finalData$W_jaw)]))
+      # Families in the jaw width file that never match the feeding data sheet
+        # If this lists every family, the family is written differently in the two files: change familyPrefix in Jaw_width_from_landmarks.R
+    print(setdiff(unique(scanData[[scanFamilyCol]]), unique(finalData$family)))
   
   
   
