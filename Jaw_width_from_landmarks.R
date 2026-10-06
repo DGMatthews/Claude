@@ -35,7 +35,7 @@ rm(list=ls())
   # Where to save the results
   pathOutput   <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/Grant Update Results'
 
-  # Landmark numbers
+  # Landmarks, by their position in each file (1 = first point in the file)
   mandMidline1 <- 1   # Mandible landmark on the midline
   mandMidline2 <- 2   # Mandible landmark on the midline
   pmxMidline   <- 1   # Premaxilla landmark on the midline
@@ -54,31 +54,18 @@ rm(list=ls())
 #  Define functions #
 #####################
 
-    # Read one landmark from a Slicer .mrk.json file
-      # Points are found by their id, not their order in the file, so extra or reordered points don't matter
-      # Some files contain leftover points copied from other specimens (e.g. labels "OC_10-2") that reuse the same ids
-        # If an id appears more than once, only the point whose label starts with this file's specimen name is used
-    readLandmark <- function(filePath, landmarkNum, specimenLabel) {
+    # Read one landmark from a Slicer .mrk.json file, by its position in the file (1 = first point)
+      # Landmark ids and labels aren't used: labels often keep Slicer's default name, and the
+        # semi-landmarks placed after the fixed landmarks can reuse the same ids
+    readLandmark <- function(filePath, landmarkPos) {
 
       controlPoints <- fromJSON(filePath)$markups$controlPoints[[1]]
 
-      rowsNow <- which(controlPoints$id == as.character(landmarkNum))
-
-      if(length(rowsNow) > 1) {
-        rowsNow <- rowsNow[startsWith(controlPoints$label[rowsNow], specimenLabel)]
+      if(nrow(controlPoints) < landmarkPos) {
+        stop("Only ", nrow(controlPoints), " points, so there's no point number ", landmarkPos, " in: ", filePath)
       }
 
-      if(length(rowsNow) == 0) {
-        stop("Landmark ", landmarkNum, " is missing (or only belongs to another specimen) in: ", filePath)
-      }
-      if(length(rowsNow) > 1) {
-        stop("Landmark ", landmarkNum, " appears ", length(rowsNow), " times with this specimen's label in: ", filePath)
-      }
-      if(controlPoints$positionStatus[rowsNow] != "defined") {
-        stop("Landmark ", landmarkNum, " is not placed (positionStatus = '", controlPoints$positionStatus[rowsNow], "') in: ", filePath)
-      }
-
-      unlist(controlPoints$position[rowsNow])
+      unlist(controlPoints$position[landmarkPos])
     }
 
 
@@ -177,10 +164,10 @@ rm(list=ls())
       mandFileNow <- file.path(pathMandible, jawWidths$mandibleFile[i])
       pmxFileNow  <- file.path(pathPremax,   jawWidths$premaxFile[i])
 
-      midA    <- readLandmark(mandFileNow, mandMidline1, specimenLabel = paste0(specimens[i], "_Mandible"))
-      midB    <- readLandmark(mandFileNow, mandMidline2, specimenLabel = paste0(specimens[i], "_Mandible"))
-      midC    <- readLandmark(pmxFileNow,  pmxMidline,   specimenLabel = paste0(specimens[i], "_Premax"))
-      lateral <- readLandmark(mandFileNow, mandLateral,  specimenLabel = paste0(specimens[i], "_Mandible"))
+      midA    <- readLandmark(mandFileNow, mandMidline1)
+      midB    <- readLandmark(mandFileNow, mandMidline2)
+      midC    <- readLandmark(pmxFileNow,  pmxMidline)
+      lateral <- readLandmark(mandFileNow, mandLateral)
 
 
     ##### Midline plane through the 3 midline landmarks
