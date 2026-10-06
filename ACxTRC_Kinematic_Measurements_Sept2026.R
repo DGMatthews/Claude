@@ -342,6 +342,13 @@ finalData <- data.frame(vidName = fileNames2,
                         Hyoid_vel_mean_backup = rep(NA_real_, nVids),
                         Hyoid_vel_mean_visible_backup = rep(NA_real_, nVids),
                         Hyoid_visible_frac_backup = rep(NA_real_, nVids),
+                        U_ram_mean_frames = rep(NA_real_, nVids),
+                        U_ram_body_tmax = rep(NA_real_, nVids),
+                        U_ram_body_acc_tmax = rep(NA_real_, nVids),
+                        U_ram_body_mean = rep(NA_real_, nVids),
+                        U_ram_body_mean_frames = rep(NA_real_, nVids),
+                        strikeAxisTilt = rep(NA_real_, nVids),
+                        strikeAxisFromNasal = rep(NA, nVids),
                         Cov_R_Uram = rep(NA_real_, nVids),
                         Cov_R_Uflowff = rep(NA_real_, nVids),
                         Cov_R_Uflowefmeas = rep(NA_real_, nVids)
@@ -398,7 +405,8 @@ finalTimeSeriesData <- list(R_t = array(data=NA, dim = c(1,longestVid, nVids), d
                             Maxilla_ang_cam_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_ang_cam_t", NULL, fileNames2)),
                             Maxilla_tip_disp_cam_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_tip_disp_cam_t", NULL, fileNames2)),
                             Hyoid_depression_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_depression_t_backup", NULL, fileNames2)),
-                            Hyoid_vel_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_vel_t_backup", NULL, fileNames2))
+                            Hyoid_vel_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_vel_t_backup", NULL, fileNames2)),
+                            U_ram_body_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_ram_body_t", NULL, fileNames2))
                             )
 
 
@@ -852,7 +860,12 @@ for(i in 1:nVids) {
         
         lambdaRef <- 5e-6
           lambdaRefDerived <- lambdaRef/5   # smoothing for derived series (R_t etc.). Should do less smoothing than the original pass.
+          
         spanRef <- 73
+        
+        
+        lambdaRefRam <- lambdaRefDerived   ### CHANGE  smoothing for x_mouth and the nasal point in the Ram section. Tuned separately because acceleration (2nd derivative) is very sensitive to it
+        
         ######################### RESET THESE BASED ON TEST VIDEO FITS #########################
         
         # Make an empty array the same shape as dataNow to hold the smoothed coordinates
@@ -1934,7 +1947,205 @@ for(i in 1:nVids) {
             }
           }
           
+        
           
+          
+          
+          
+        #######
+        # Ram #
+        #######
+
+        # Strike axis = direction of the body's net movement over the strike, from the Nasal position at Tstart to Tend
+          # Mouth velocity is projected onto this axis, so:
+            # Up/down motion of the gape center from jaw opening (perpendicular to the strike path) is not counted as ram
+            # A tilted strike path is measured at full speed
+          # Falls back to the camera x-axis if the Nasal isn't tracked at Tstart and Tend, or the body barely moves
+          # Signed so that moving toward the prey is positive
+          # PIV velocity is a speed magnitude, assumed collinear with ram. The kinematic camera is mirrored relative to the PIV camera,
+            # but that doesn't matter here: ram is signed by strikeDirection and the PIV value has no sign
+          # Assumes the strike path is roughly straight over Tstart-Tend
+        # x_mouth(t) = midpoint of UJ and LJ (Muller et al. gape center)
+          # Includes jaw protrusion (along the strike path) as well as body motion, which is correct for the pressure equation
+        # Variables
+          # x_mouth_t:          position of the gape center along the strike axis (mm, increasing = moving toward the prey)
+          # U_ram_t:            d(x_mouth)/dt from a spline (mm/s)
+          # U_ram_mean:         (x_mouth(Tend) - x_mouth(Tstart)) / Ttotal. Exact identity for (1/T) * integral of U_ram
+          # U_ram_mean_frames:  plain mean of U_ram_t over Tstart-Tend frames. Check, should be nearly equal to U_ram_mean
+          # U_ram_body_*:       same, using the Nasal point projected onto the same axis. Separates whole-body motion from jaw-driven motion of the mouth
+            # Nasal moves slightly with cranial elevation, so this still includes a small part of head motion
+          # Cov_R_Uram:         (1/T) * integral of (R - <R>)(U_ram - <U_ram>) over Tstart-Tend (mm^2/s)
+          # strikeAxisTilt:     angle of the strike axis above horizontal (radians, positive = strike path tilted upward)
+          # strikeAxisFromNasal: TRUE if the axis came from the Nasal, FALSE if it fell back to the camera x-axis
+
+          strikeAxisMinDisp <- 0.5   ### CHANGE  minimum net Nasal displacement over the strike (mm) for the strike axis to be meaningful
+
+
+          # Strikes with no Tstart are already logged in the Gape section
+          if(!is.na(finalData$Tstart[i])) {
+
+            ##### Strike axis
+              # y is flipped so up is positive (image y points down)
+
+              # Default: camera x-axis, pointing toward the prey
+              xAxis <- finalData$strikeDirection[i]
+              yAxis <- 0
+              finalData$strikeAxisFromNasal[i] <- FALSE
+
+              nasalDispX <- xNasal[endPos] - xNasal[startPos]
+              nasalDispY <- -(yNasal[endPos] - yNasal[startPos])
+
+              if(is.na(nasalDispX) || is.na(nasalDispY)) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram", "FLAG: Nasal not tracked at Tstart or Tend, strike axis set to camera x-axis")
+
+              } else if(sqrt(nasalDispX^2 + nasalDispY^2) < strikeAxisMinDisp) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram", paste0("FLAG: body moved less than ", strikeAxisMinDisp, " mm, strike axis set to camera x-axis"))
+
+              } else if(nasalDispX * finalData$strikeDirection[i] == 0) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram", "FLAG: body moved straight up or down, strike axis set to camera x-axis")
+
+              } else {
+                nasalDispLength <- sqrt(nasalDispX^2 + nasalDispY^2)
+
+                # Point the axis toward the prey. If the fish backed up over the strike, the axis still points forward and ram comes out negative
+                axisSign <- sign(nasalDispX * finalData$strikeDirection[i])
+                xAxis <- axisSign * nasalDispX / nasalDispLength
+                yAxis <- axisSign * nasalDispY / nasalDispLength
+                finalData$strikeAxisFromNasal[i] <- TRUE
+              }
+
+              # strikeAxisTilt (radians above horizontal, in the forward direction)
+              finalData$strikeAxisTilt[i] <- atan2(yAxis, finalData$strikeDirection[i] * xAxis)
+
+
+            ##### x_mouth_t (mm along the strike axis)
+
+              xMouthAxis_t <- ((xUJ + xLJ) / 2) * xAxis + (-(yUJ + yLJ) / 2) * yAxis
+                #save it to the final array
+              finalTimeSeriesData$x_mouth_t[1, 1:length(xMouthAxis_t), i] <- xMouthAxis_t
+
+              goodFrames_mouth <- which(!is.na(xMouthAxis_t))
+
+
+            ##### Mouth ram
+
+              if(length(goodFrames_mouth) >= 10) {
+
+                  # Same lambda scaling as the coordinate smoothing, based on the frame span being fit. Uses the ram-specific lambda
+                  spanNow   <- max(goodFrames_mouth) - min(goodFrames_mouth)
+                  lambdaNow <- lambdaRefRam * (spanRef / spanNow)^3
+
+                  x_mouth_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_mouth], y = xMouthAxis_t[goodFrames_mouth], lambda = lambdaNow)
+
+                  # U_ram_t (mm/s). Only at frames that had data
+                  U_ram_t <- rep(NA_real_, length(xMouthAxis_t))
+                  U_ram_t[goodFrames_mouth] <- predict(x_mouth_t_smooth, x = timeSeriesNow[goodFrames_mouth], deriv = 1)$y
+                    #save it to the final array
+                  finalTimeSeriesData$U_ram_t[1, 1:length(U_ram_t), i] <- U_ram_t
+
+
+                  # U_ram_mean (mm/s)
+                    # Uses spline positions at Tstart and Tend, so it exactly equals the time-average of the spline's velocity
+                    # UJ and LJ always exist at Tstart and Tend, because those frames are defined by gape
+                  finalData$U_ram_mean[i] <- (predict(x_mouth_t_smooth, x = timeSeriesNow[endPos], deriv = 0)$y -
+                                              predict(x_mouth_t_smooth, x = timeSeriesNow[startPos], deriv = 0)$y) / finalData$Ttotal[i]
+
+                  # U_ram_mean_frames (mm/s)
+                  finalData$U_ram_mean_frames[i] <- mean(U_ram_t[startPos:endPos], na.rm=TRUE)
+
+
+                  # Cov_R_Uram (mm^2/s)
+                    # Population covariance (divide by n) to match (1/T) * integral. Means are taken over the same frames as the covariance
+                  covFrames <- intersect(startPos:endPos, which(!is.na(R_t) & !is.na(U_ram_t)))
+
+                  if(length(covFrames) >= 2) {
+                    finalData$Cov_R_Uram[i] <- mean((R_t[covFrames] - mean(R_t[covFrames])) * (U_ram_t[covFrames] - mean(U_ram_t[covFrames])))
+                  }
+
+
+                  # Cov_R_Uflowefmeas and Cov_R_Uflowff: add once the PIV flow time series are imported   ### CHANGE
+                    # Use the same frames as Cov_R_Uram, so Cov_R_Uflowff = Cov_R_Uflowefmeas - Cov_R_Uram is an exact identity
+                    # PIV is in m/s, so convert to mm/s (* 1000) first
+                  # covFramesPIV <- intersect(covFrames, which(!is.na(U_flow_ef_meas_t)))
+                  # finalData$Cov_R_Uflowefmeas[i] <- mean((R_t[covFramesPIV] - mean(R_t[covFramesPIV])) * (U_flow_ef_meas_t[covFramesPIV] - mean(U_flow_ef_meas_t[covFramesPIV])))
+                  # finalData$Cov_R_Uflowff[i]     <- finalData$Cov_R_Uflowefmeas[i] - finalData$Cov_R_Uram[i]
+
+
+                  # Values at tmax
+                    # x_mouth has the same frames as gape, so a tmax outside the frames is already logged in the Gape section
+                  if(!is.na(finalData$tmax[i]) && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_mouth)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_mouth)]) {
+
+                      # U_ram_tmax (mm/s)
+                      finalData$U_ram_tmax[i] <- predict(x_mouth_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+
+                      # U_ram_acc_tmax (mm/s^2)
+                      finalData$U_ram_acc_tmax[i] <- predict(x_mouth_t_smooth, x = finalData$tmax[i], deriv = 2)$y
+                  }
+
+              } else {
+                  skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram", "Fewer than 10 frames with UJ and LJ: no ram values")
+              }
+
+
+            ##### Body ram (Nasal point, projected onto the same strike axis)
+
+              xNasalAxis_t <- xNasal * xAxis + (-yNasal) * yAxis
+              goodFrames_nasalRam <- which(!is.na(xNasalAxis_t))
+
+              if(length(goodFrames_nasalRam) >= 10) {
+
+                  # Same lambda scaling, using the ram-specific lambda
+                  spanNow   <- max(goodFrames_nasalRam) - min(goodFrames_nasalRam)
+                  lambdaNow <- lambdaRefRam * (spanRef / spanNow)^3
+
+                  x_nasal_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_nasalRam], y = xNasalAxis_t[goodFrames_nasalRam], lambda = lambdaNow)
+
+                  # U_ram_body_t (mm/s). Only at frames that had data
+                  U_ram_body_t <- rep(NA_real_, length(xNasalAxis_t))
+                  U_ram_body_t[goodFrames_nasalRam] <- predict(x_nasal_t_smooth, x = timeSeriesNow[goodFrames_nasalRam], deriv = 1)$y
+                    #save it to the final array
+                  finalTimeSeriesData$U_ram_body_t[1, 1:length(U_ram_body_t), i] <- U_ram_body_t
+
+                  # U_ram_body_mean (mm/s)
+                    # Only if the nasal is tracked at both Tstart and Tend. Predicting the spline outside its frames would extrapolate
+                  if(timeSeriesNow[startPos] >= timeSeriesNow[min(goodFrames_nasalRam)] && timeSeriesNow[endPos] <= timeSeriesNow[max(goodFrames_nasalRam)]) {
+                    finalData$U_ram_body_mean[i] <- (predict(x_nasal_t_smooth, x = timeSeriesNow[endPos], deriv = 0)$y -
+                                                     predict(x_nasal_t_smooth, x = timeSeriesNow[startPos], deriv = 0)$y) / finalData$Ttotal[i]
+                  } else {
+                    skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram body", "Nasal not tracked at Tstart or Tend: U_ram_body_mean not calculated")
+                  }
+
+                  # U_ram_body_mean_frames (mm/s)
+                  if(any(!is.na(U_ram_body_t[startPos:endPos]))) {
+                    finalData$U_ram_body_mean_frames[i] <- mean(U_ram_body_t[startPos:endPos], na.rm=TRUE)
+                  }
+
+                  # Values at tmax
+                  if(!is.na(finalData$tmax[i])) {
+                    if(finalData$tmax[i] >= timeSeriesNow[min(goodFrames_nasalRam)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_nasalRam)]) {
+
+                        # U_ram_body_tmax (mm/s)
+                        finalData$U_ram_body_tmax[i] <- predict(x_nasal_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+
+                        # U_ram_body_acc_tmax (mm/s^2)
+                        finalData$U_ram_body_acc_tmax[i] <- predict(x_nasal_t_smooth, x = finalData$tmax[i], deriv = 2)$y
+
+                    } else {
+                        skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram body", "Values at tmax not calculated: tmax outside tracked Nasal frames")
+                    }
+                  }
+
+              } else {
+                  skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram body", "Fewer than 10 frames with Nasal: no body ram values")
+              }
+          }
+          
+          
+          
+          
+          
+          
+            
         ###########################
         # Opercular 4-bar at tmax #
         ###########################
@@ -2068,8 +2279,10 @@ for(i in 1:nVids) {
   
   
   
+  summary(finalData$strikeAxisTilt * 180/pi) # shows how tilted strikes actually are.
   
-  
+  table(finalData$strikeAxisFromNasal) # shows how often the axis fell back to the camera x-axis.
+                          # If few strikes fall back and most tilts are only a few degrees, the projection is changing little compared with x-only ram, which is fine.
   
   
   
