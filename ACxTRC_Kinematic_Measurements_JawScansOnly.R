@@ -704,7 +704,7 @@ print(length(unique(finalData$Unique.ID)))
 
   # QC plots (one PNG per video)
   saveQCplots  <- TRUE                   ### CHANGE  FALSE to skip (they take time and disk space for ~2900 videos)
-  qcPlotFolder <- 'PATH/TO/QC_plots_jawScansOnly'     ### CHANGE
+  qcPlotFolder <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/Grant Update Results/QC_plots_jawScansOnly'     ### CHANGE
 
   # finalData columns for each hyoid version. Names on the left match the values returned by hyoidOutputs()
     # Only the outputs that don't need a scan zero
@@ -1922,7 +1922,7 @@ for(i in 1:nVids) {
   print(head(sort(table(skippedVids$vidName), decreasing = TRUE), 20))
 
     # Save the log so I can work through it alongside the videos
-  write.csv(skippedVids, 'PATH/TO/skippedVids_jawScansOnly.csv', row.names = FALSE)   ### CHANGE path
+  write.csv(skippedVids, 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/Grant Update Results/skippedVids_jawScansOnly.csv', row.names = FALSE)   ### CHANGE path
   
   
   
@@ -2055,10 +2055,10 @@ for(i in 1:nVids) {
 # Save    #
 ###########
   # finalData: one row per video. Analyze in a separate script
-  write.csv(finalData, 'PATH/TO/kinematics_jawScansOnly.csv', row.names = FALSE)   ### CHANGE path
+  write.csv(finalData, 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/Grant Update Results/kinematics_jawScansOnly.csv', row.names = FALSE)   ### CHANGE path
 
   # finalTimeSeriesData is a list of 3D arrays, so it can't go in a CSV. Save it as an R object and read it back with readRDS()
-  saveRDS(finalTimeSeriesData, 'PATH/TO/kinematicsTimeSeries_jawScansOnly.rds')   ### CHANGE path
+  saveRDS(finalTimeSeriesData, 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/Grant Update Results/kinematicsTimeSeries_jawScansOnly.rds')   ### CHANGE path
 
 
 
