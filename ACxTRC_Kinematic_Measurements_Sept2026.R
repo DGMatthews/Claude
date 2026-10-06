@@ -278,7 +278,10 @@ finalData <- data.frame(vidName = fileNames2,
                         Mandible_ang_tmax = rep(NA_real_, nVids),
                         Mandible_tip_disp_tmax = rep(NA_real_, nVids),
                         Mandible_tip_disp_vel_tmax = rep(NA_real_, nVids),
+                        Mandible_tip_disp_Max = rep(NA_real_, nVids),
+                        Mandible_depression_Max = rep(NA_real_, nVids),
                         Neurocranium_tip_disp_tmax = rep(NA_real_, nVids),
+                        Neurocranium_angular_vel_tmax = rep(NA_real_, nVids),
                         Maxilla_tip_disp_tmax = rep(NA_real_, nVids),
                         Maxilla_linear_vel_tmax = rep(NA_real_, nVids),
                         Maxilla_ang_tmax = rep(NA_real_, nVids),
@@ -305,6 +308,12 @@ finalData <- data.frame(vidName = fileNames2,
                         Opercular_KT_tmax = rep(NA_real_, nVids),
                         Maxilla_ang_predicted_tmax = rep(NA_real_, nVids),
                         Mandible_ang_predicted_tmax = rep(NA_real_, nVids),
+                        strikeDirection = rep(NA_real_, nVids),
+                        Neurocranium_tip_disp_eye_tmax = rep(NA_real_, nVids),
+                        Neurocranium_angular_vel_mean = rep(NA_real_, nVids),
+                        Neurocranium_linear_vel_mean = rep(NA_real_, nVids),
+                        Neurocranium_eyeNasal_stretch_max = rep(NA_real_, nVids),
+                        Neurocranium_eyeQC_flag = rep(NA, nVids),
                         Cov_R_Uram = rep(NA_real_, nVids),
                         Cov_R_Uflowff = rep(NA_real_, nVids),
                         Cov_R_Uflowefmeas = rep(NA_real_, nVids)
@@ -354,7 +363,10 @@ finalTimeSeriesData <- list(R_t = array(data=NA, dim = c(1,longestVid, nVids), d
                             Hyoid_vel_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_vel_t", NULL, fileNames2)),
                             Mandible_ang_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Mandible_ang_t", NULL, fileNames2)),
                             Maxilla_ang_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_ang_t", NULL, fileNames2)),
-                            Maxilla_tip_disp_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_tip_disp_t", NULL, fileNames2))
+                            Maxilla_tip_disp_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_tip_disp_t", NULL, fileNames2)),
+                            Neurocranium_rotation_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_rotation_t", NULL, fileNames2)),
+                            Neurocranium_angular_vel_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_angular_vel_t", NULL, fileNames2)),
+                            Neurocranium_tip_disp_eye_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_tip_disp_eye_t", NULL, fileNames2))
                             )
 
 
@@ -718,24 +730,40 @@ length(unique(finalData$Unique.ID))
 
 
 
-
+#Record everything that exists before the analysis loop
+  # At the top of each loop iteration, anything NOT in this list is deleted, so no per-video variable can carry over to the next video
+  # Anything that needs to survive across videos (finalData, finalTimeSeriesData, skippedVids, functions, settings) must be created ABOVE this line
+preLoopVars <- c(ls(), "preLoopVars")
 
 for(i in 1:nVids) {
   
-          #Get the names of the landmarks from this file and check that they are in the same order as expected
-        landmarkNames <- h5read(file=fileNames[i],
-                                name='/node_names')
-        expectedNames <- c("UJ", "LJ", "Nasal", "VentMax", "Eye", "Hyoid", "OpercTab")
-        
-        if(!identical(as.vector(landmarkNames), expectedNames)){
-          stop("The landmark names are different from expected in: ", fileNames[i])
-        }
-        
-        #Read in the actual tracking data
-        dataNow <- h5read(file=fileNames[i], #Read in the ith data set
-                          name='/tracks',
-                          index= list(NULL,NULL,NULL,NULL))
+  
+  
+        ###########################################
+        # Clear per-video variables from the last video #
+        ###########################################
+          # Deletes everything created inside the loop on the previous iteration
+          # If a section uses a variable before it's set for this video, R will stop with "object not found" instead of silently using the last video's value
+
+          staleVars <- setdiff(ls(), c(preLoopVars, "i"))
+          rm(list = staleVars)
+          rm(staleVars)
+  
+  
+        #Get the names of the landmarks from this file and check that they are in the same order as expected
+            landmarkNames <- h5read(file=fileNames[i],
+                                    name='/node_names')
+            expectedNames <- c("UJ", "LJ", "Nasal", "VentMax", "Eye", "Hyoid", "OpercTab")
             
+            if(!identical(as.vector(landmarkNames), expectedNames)){
+              stop("The landmark names are different from expected in: ", fileNames[i])
+            }
+            
+            #Read in the actual tracking data
+            dataNow <- h5read(file=fileNames[i], #Read in the ith data set
+                              name='/tracks',
+                              index= list(NULL,NULL,NULL,NULL))
+                
             #[a,b,x,n]
             #a is the frame number
             #b is the node number (names of the nodes are stored in the "node_names" data set)
@@ -867,6 +895,39 @@ for(i in 1:nVids) {
         
         
         
+        
+        
+        
+        ####################
+        # Strike direction #
+        ####################
+            # +1 = fish facing right, -1 = fish facing left
+            # Uses the first frame with UJ, LJ and VentMax all present
+              # VentMax sits behind the jaw tips, so:
+              # Facing right: maxilla is to the LEFT of both UJ and LJ
+              # Facing left:  maxilla is to the RIGHT of both UJ and LJ
+            # Only x is used, so the y-down image axis doesn't matter here
+            # Anything that depends on rotation direction or forward motion (neurocranium, maxilla angle, x_mouth/U_ram) multiplies by this
+  
+            dfTemp <- data.frame(xUJ=xUJ, xLJ=xLJ, xMaxilla=xMaxilla)
+            firstDirFrame <- which(complete.cases(dfTemp))[1]
+  
+            if(is.na(firstDirFrame)) {
+              stop("No frame has UJ, LJ and VentMax all present, so strike direction can't be found in: ", fileNames2[i])
+            }
+  
+            if(xMaxilla[firstDirFrame] < min(xUJ[firstDirFrame], xLJ[firstDirFrame])) {
+              strikeDirection <- 1
+            } else if(xMaxilla[firstDirFrame] > max(xUJ[firstDirFrame], xLJ[firstDirFrame])) {
+              strikeDirection <- -1
+            } else {
+              stop("VentMax is between UJ and LJ in x at frame ", firstDirFrame, ", so strike direction is ambiguous (check landmark placement) in: ", fileNames2[i])
+            }
+  
+            finalData$strikeDirection[i] <- strikeDirection
+          
+          
+          
         
         
         
@@ -1203,9 +1264,172 @@ for(i in 1:nVids) {
           
           
           
-          # Neurocranium_tip_disp_tmax
-          # Neurocranium_linear_vel_tmax
-          # Neurocranium_rotation_tmax
+        ################
+        # Neurocranium #
+        ################
+
+        # Neurocranium rotation from the angle of the Eye -> Nasal vector
+          # On a rigid skull, the line between any two points on it rotates by exactly the skull's rotation,
+            # no matter where the pivot (craniovertebral joint) is. So the eye works as a base point without knowing the pivot
+          # Eye sliding ALONG the Eye-Nasal line doesn't change the angle
+          # Eye sliding PERPENDICULAR to it does (error = slide / Eye-Nasal distance)
+          # Whole-body pitch is included in this angle. Known source of error, assumed small because strikes are fast
+        # Variables
+          # Neurocranium_rotation_t:      change in Eye->Nasal angle from rest (radians, elevation is positive)
+          # Neurocranium_tip_disp_t:      Neurocranium_length * Neurocranium_rotation_t (mm). Arc length, so rotation = tip_disp / Neurocranium_length exactly
+          # Neurocranium_tip_disp_eye_t:  nasal tip displacement relative to the eye, perpendicular to the resting Eye-Nasal line (mm). No scan values needed
+          # Neurocranium_angular_vel_t:   d(rotation)/dt from a spline (radians/s)
+          # Neurocranium_linear_vel_t:    Neurocranium_length * Neurocranium_angular_vel_t (mm/s). Identical to the spline derivative of tip_disp
+          # Neurocranium_eyeNasal_stretch_max: QC. Largest proportional change in Eye-Nasal distance during the strike
+            # Should be 0 for a rigid skull. Only detects eye sliding along the line, so it's a proxy for sliding in general
+
+          eyeStretchCutoff <- 0.20   ### CHANGE  lenient QC cutoff for flagging eye sliding (proportion of resting Eye-Nasal distance)
+
+          dfTemp <- data.frame(xNasal=xNasal, yNasal=yNasal, xEye=xEye, yEye=yEye)
+          firstNeuroFrame <- which(complete.cases(dfTemp))[1]
+
+
+          if(!is.na(firstNeuroFrame) && !is.na(finalData$Tstart[i]) && (timeSeriesNow[firstNeuroFrame])<=finalData$Tstart[i]) {
+
+            ##### Eye -> Nasal vector in each frame
+              # y is flipped so up is positive (image y points down)
+
+              vxNeuro <- xNasal - xEye
+              vyNeuro <- -(yNasal - yEye)
+
+              vxRest <- vxNeuro[firstNeuroFrame]
+              vyRest <- vyNeuro[firstNeuroFrame]
+              eyeNasalRest <- sqrt(vxRest^2 + vyRest^2)
+
+              # The nasal must be in front of the eye in the direction the fish is facing. If not, landmarks are swapped or the direction is wrong
+              if(sign(vxRest) != finalData$strikeDirection[i]) {
+                stop("Nasal is not in front of the eye at rest (frame ", firstNeuroFrame, ") for strikeDirection = ", finalData$strikeDirection[i], ". Check Nasal/Eye/VentMax landmarks in: ", fileNames2[i])
+              }
+
+
+            ##### Neurocranium_rotation_t (radians)
+              # Signed angle from the resting vector to the current vector, atan2(cross, dot). Positive = counterclockwise (with y up)
+              # Elevation is counterclockwise for a fish facing right and clockwise for a fish facing left, so multiply by strikeDirection
+
+              Neurocranium_rotation_t <- finalData$strikeDirection[i] * atan2(vxRest*vyNeuro - vyRest*vxNeuro,
+                                                                              vxRest*vxNeuro + vyRest*vyNeuro)
+                #save it to the final array
+              finalTimeSeriesData$Neurocranium_rotation_t[1, 1:length(Neurocranium_rotation_t), i] <- Neurocranium_rotation_t
+
+
+            ##### Neurocranium_tip_disp_eye_t (mm)
+              # Unit vector perpendicular to the resting Eye-Nasal line, pointing dorsally for either facing direction
+
+              xPerp <- -finalData$strikeDirection[i] * vyRest / eyeNasalRest
+              yPerp <-  finalData$strikeDirection[i] * vxRest / eyeNasalRest
+
+              Neurocranium_tip_disp_eye_t <- (vxNeuro - vxRest)*xPerp + (vyNeuro - vyRest)*yPerp
+                #save it to the final array
+              finalTimeSeriesData$Neurocranium_tip_disp_eye_t[1, 1:length(Neurocranium_tip_disp_eye_t), i] <- Neurocranium_tip_disp_eye_t
+
+
+            ##### QC: Eye-Nasal stretch during the strike
+
+              eyeNasalStretch_t <- sqrt(vxNeuro^2 + vyNeuro^2) / eyeNasalRest - 1
+
+              if(any(!is.na(eyeNasalStretch_t[startPos:endPos]))) {
+                finalData$Neurocranium_eyeNasal_stretch_max[i] <- max(abs(eyeNasalStretch_t[startPos:endPos]), na.rm=TRUE)
+                finalData$Neurocranium_eyeQC_flag[i] <- finalData$Neurocranium_eyeNasal_stretch_max[i] > eyeStretchCutoff
+              }
+
+
+            ##### Neurocranium_Max and Time_cranial
+              # Time_cranial is measured from Tstart, same as Ttpg and Time_hyoid
+
+              if(any(!is.na(Neurocranium_rotation_t[startPos:endPos]))) {
+
+                cranialPeakFrame <- startPos - 1 + which.max(Neurocranium_rotation_t[startPos:endPos])
+
+                # Neurocranium_Max (largest cranial elevation during the strike, radians)
+                finalData$Neurocranium_Max[i] <- Neurocranium_rotation_t[cranialPeakFrame]
+
+                # Time_cranial (s)
+                finalData$Time_cranial[i] <- timeSeriesNow[cranialPeakFrame] - finalData$Tstart[i]
+              }
+
+
+            ##### Neurocranium_tip_disp_t (mm, needs scan value)
+
+              neuroL <- finalData$Neurocranium_length[i]
+
+              if(!is.na(neuroL)) {
+                Neurocranium_tip_disp_t <- neuroL * Neurocranium_rotation_t
+                  #save it to the final array
+                finalTimeSeriesData$Neurocranium_tip_disp_t[1, 1:length(Neurocranium_tip_disp_t), i] <- Neurocranium_tip_disp_t
+              }
+
+
+            ##### Spline on rotation: velocity time series, mean velocities, and values at tmax
+
+              goodFrames_neuro <- which(!is.na(Neurocranium_rotation_t))
+
+              if(length(goodFrames_neuro) >= 10) {
+
+                  # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
+                  spanNow   <- max(goodFrames_neuro) - min(goodFrames_neuro)
+                  lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
+
+                  Neurocranium_rotation_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_neuro], y = Neurocranium_rotation_t[goodFrames_neuro], lambda = lambdaNow)
+
+                  # Neurocranium_angular_vel_t (radians/s). Only at frames that had data
+                  Neurocranium_angular_vel_t <- rep(NA_real_, length(Neurocranium_rotation_t))
+                  Neurocranium_angular_vel_t[goodFrames_neuro] <- predict(Neurocranium_rotation_t_smooth, x = timeSeriesNow[goodFrames_neuro], deriv = 1)$y
+                    #save it to the final array
+                  finalTimeSeriesData$Neurocranium_angular_vel_t[1, 1:length(Neurocranium_angular_vel_t), i] <- Neurocranium_angular_vel_t
+
+                  # Neurocranium_linear_vel_t (mm/s, needs scan value)
+                  if(!is.na(neuroL)) {
+                    Neurocranium_linear_vel_t <- neuroL * Neurocranium_angular_vel_t
+                      #save it to the final array
+                    finalTimeSeriesData$Neurocranium_linear_vel_t[1, 1:length(Neurocranium_linear_vel_t), i] <- Neurocranium_linear_vel_t
+                  }
+
+
+                  # Mean velocities from Tstart to peak cranial elevation
+                    # Over the whole strike these would be ~0, because the cranium elevates and then returns
+                    # Plain means. Muscle/MA scaling for <Neurocranium_Adj_vel> is done outside this script
+                  if(!is.na(finalData$Time_cranial[i]) && any(!is.na(Neurocranium_angular_vel_t[startPos:cranialPeakFrame]))) {
+
+                    # Neurocranium_angular_vel_mean (radians/s)
+                    finalData$Neurocranium_angular_vel_mean[i] <- mean(Neurocranium_angular_vel_t[startPos:cranialPeakFrame], na.rm=TRUE)
+
+                    # Neurocranium_linear_vel_mean (mm/s). NA if no scan value
+                    finalData$Neurocranium_linear_vel_mean[i] <- neuroL * finalData$Neurocranium_angular_vel_mean[i]
+                  }
+
+
+                  if(!is.na(finalData$tmax[i])) {
+
+                      #Check that tmax is within the frames that have neurocranium data
+                      if(finalData$tmax[i] >= timeSeriesNow[min(goodFrames_neuro)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_neuro)]) {
+
+                          # Neurocranium_rotation_tmax (radians)
+                          finalData$Neurocranium_rotation_tmax[i] <- predict(Neurocranium_rotation_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+
+                          # Neurocranium_angular_vel_tmax (radians/s)
+                          finalData$Neurocranium_angular_vel_tmax[i] <- predict(Neurocranium_rotation_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+
+                          # Tip displacement and linear velocity come from the rotation spline, so the SEM equations are exact identities
+                            # NA if no scan value
+                          # Neurocranium_tip_disp_tmax (mm)
+                          finalData$Neurocranium_tip_disp_tmax[i] <- neuroL * finalData$Neurocranium_rotation_tmax[i]
+
+                          # Neurocranium_linear_vel_tmax (mm/s)
+                          finalData$Neurocranium_linear_vel_tmax[i] <- neuroL * finalData$Neurocranium_angular_vel_tmax[i]
+
+
+                          # Neurocranium_tip_disp_eye_tmax (mm). Separate spline, same frames and smoothing
+                          Neurocranium_tip_disp_eye_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_neuro], y = Neurocranium_tip_disp_eye_t[goodFrames_neuro], lambda = lambdaNow)
+                          finalData$Neurocranium_tip_disp_eye_tmax[i] <- predict(Neurocranium_tip_disp_eye_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                      }
+                  }
+              }
+          }
           
           
           
@@ -1940,6 +2164,7 @@ for(i in 1:nVids) {
         # 
         # dev.off()
         
+        }
 }
   
   
