@@ -122,8 +122,42 @@ vidData <- vidDataTemp[which(vidDataTemp$Generation=='F2'&vidDataTemp$Event!='-'
 fileNames <- list.files(pattern="\\.h5$", all.files=TRUE, no..=TRUE)
 fileNames2 <- gsub("\\.analysis\\.h5$", "",fileNames) #Keep the name of the file, but remove ".analysis.h5" from the end of it
 
+
+#################
+#   Test mode   #
+#################
+  # Runs the script on only a few videos, for tuning smoothing and debugging
+  # NULL = run every video
+  # Otherwise a vector of video numbers (positions in fileNames) or video names (fileNames2, without ".analysis.h5")
+    # e.g. testVids <- c(1, 25, 300)   or   testVids <- c("2026-05-01_ACxTRC_A12.06_E03")
+  testVids <- NULL   ### CHANGE
+
+  # The pooled retraction ratio (beta) needs at least betaMinFrames eye-based frames, which a few test videos may not have
+    # In test mode only, this value is used instead when there are too few frames
+  testBeta <- 0.3    ### CHANGE  rough guess. Replace with the fitted value once the full dataset has been run
+
+  if(!is.null(testVids)) {
+
+    if(is.character(testVids)) {
+      testKeep <- match(testVids, fileNames2)
+      if(any(is.na(testKeep))) {
+        stop("These test videos are not in the folder: ", paste(testVids[is.na(testKeep)], collapse = ", "))
+      }
+    } else {
+      testKeep <- testVids
+      if(any(testKeep < 1 | testKeep > length(fileNames))) {
+        stop("Test video numbers must be between 1 and ", length(fileNames))
+      }
+    }
+
+    fileNames  <- fileNames[testKeep]
+    fileNames2 <- fileNames2[testKeep]
+
+    print(paste0("TEST MODE: running ", length(fileNames), " videos"))
+  }
+
 #First view the structure of the file
-h5ls(file=fileNames[1])
+print(h5ls(file=fileNames[1]))
 
 
 #####################
@@ -338,6 +372,32 @@ h5ls(file=fileNames[1])
       }
 
       out
+    }
+
+
+    # One QC plot panel: a time series with Tstart/Tend (grey dotted) and tmax (red)
+      # ySecond (optional) is drawn dashed, for a second version of the same variable
+    qcPanel <- function(timeNow, yMain, ySecond, main, ylab, Tstart, Tend, tmax) {
+
+      if(all(is.na(yMain)) && (is.null(ySecond) || all(is.na(ySecond)))) {
+        plot.new()
+        title(main = paste0(main, " (no data)"))
+        return(invisible(NULL))
+      }
+
+      yRange <- range(c(yMain, ySecond), na.rm = TRUE)
+      plot(timeNow, yMain, type = "l", lwd = 2, ylim = yRange, xlab = "Time (s)", ylab = ylab, main = main)
+
+      if(!is.null(ySecond)) {
+        lines(timeNow, ySecond, lty = 2, col = "grey40")
+      }
+
+      abline(h = 0, col = "grey85")
+      strikeLines <- c(Tstart, Tend)
+      abline(v = strikeLines[!is.na(strikeLines)], lty = 3, col = "grey50")
+      if(!is.na(tmax)) {
+        abline(v = tmax, col = "red")
+      }
     }
 
 
@@ -621,8 +681,8 @@ vidData$Animal.ID <- gsub('\\-','\\.',vidData$Animal.ID)
 #Important to include the date to differentiate between fish that have the same individual ID but come from different parents
 #e.g.F1.2 A20.01 vs. F1.3 A20.01
 
-head(vidData)
-head(finalData)
+print(head(vidData))
+print(head(finalData))
 
 for(sigh in 1:nrow(vidData)) {
   vidData$Date2[sigh] <- strsplit(vidData$Kine.filename,'_')[[sigh]][3]
@@ -663,9 +723,9 @@ for(check in 1:nrow(finalData)){
 finalData$Unique.ID <- paste(finalData$family,finalData$Generation,finalData$Animal.ID,sep='_')
 finalData$Event.ID <- paste(finalData$date,finalData$family,finalData$Generation,finalData$Animal.ID,finalData$Event,sep='_')
 
-finalData$Event.ID[which(duplicated(finalData$Event.ID)==TRUE)] #No duplicates, onto the analysis
+print(finalData$Event.ID[which(duplicated(finalData$Event.ID)==TRUE)]) #No duplicates, onto the analysis
 
-length(unique(finalData$Unique.ID))
+print(length(unique(finalData$Unique.ID)))
 
 
 
@@ -710,8 +770,8 @@ length(unique(finalData$Unique.ID))
   finalData$tmaxVel <- finalData$tPeakVelocity
   
   # Check: how many videos got PIV data, and were any PIV results not used?
-  sum(!is.na(finalData$tmax))
-  setdiff(Pressure_vel_Data$video, vidData$PIV.filename[finalData$equivVidRow])
+  print(sum(!is.na(finalData$tmax)))
+  print(setdiff(Pressure_vel_Data$video, vidData$PIV.filename[finalData$equivVidRow]))
   
   
   
@@ -805,9 +865,9 @@ length(unique(finalData$Unique.ID))
     
     # Checks
       # How many videos are missing each measurement?
-    colSums(is.na(finalData[, names(scanColumns)]))
+    print(colSums(is.na(finalData[, names(scanColumns)])))
       # Which individuals have no scan match at all?
-    unique(finalData$Unique.ID[is.na(finalData$Mandible_length)])
+    print(unique(finalData$Unique.ID[is.na(finalData$Mandible_length)]))
   
   
   
@@ -881,13 +941,13 @@ length(unique(finalData$Unique.ID))
         
         # Checks
           # Individuals whose linkage can't close (NaN). The link lengths or resting angle need checking
-        unique(finalData$Unique.ID[is.nan(finalData$Oral_theta3_rest) | is.nan(finalData$Oral_theta3_30)])
-        unique(finalData$Unique.ID[is.nan(finalData$Opercular_theta4_rest) | is.nan(finalData$Opercular_theta4_10)])
+        print(unique(finalData$Unique.ID[is.nan(finalData$Oral_theta3_rest) | is.nan(finalData$Oral_theta3_30)]))
+        print(unique(finalData$Unique.ID[is.nan(finalData$Opercular_theta4_rest) | is.nan(finalData$Opercular_theta4_10)]))
         
           # Calculated vs. scanned theta4_rest, in degrees. Should be close to 0
         if("Opercular_theta4_rest_scan" %in% names(finalData)) {
           finalData$Opercular_theta4_rest_diff <- wrapAngle(finalData$Opercular_theta4_rest - finalData$Opercular_theta4_rest_scan)
-          summary(finalData$Opercular_theta4_rest_diff * 180 / pi)
+          print(summary(finalData$Opercular_theta4_rest_diff * 180 / pi))
         }
         
         
@@ -931,6 +991,10 @@ length(unique(finalData$Unique.ID))
 
   # Buccal volume
   uFlowAreaFrac <- 0.5      ### CHANGE  big-gape mean of U_flow_ff_predicted only uses frames where A >= this fraction of A_Max
+
+  # QC plots (one PNG per video)
+  saveQCplots  <- TRUE                   ### CHANGE  FALSE to skip (they take time and disk space for ~2900 videos)
+  qcPlotFolder <- 'PATH/TO/QC_plots'     ### CHANGE
 
   # finalData columns for each hyoid version. Names on the left match the values returned by hyoidOutputs()
   hyoidColsMain <- c(Time = "Time_hyoid", visible_frac = "Hyoid_visible_frac", vel_mean_visible = "Hyoid_vel_mean_visible",
@@ -2313,47 +2377,10 @@ for(i in 1:nVids) {
           
                     
 
-        ###########################
-        # Kinetic synchronization #
-        ###########################
-          # SD of the three peak times divided by strike duration. Low = more synchronized
-          # All three times are measured from Tstart (gape first passes 20% of its range): Time_hyoid, Ttpg, Time_cranial
-          # sd() divides by n-1. With 3 values that's always sqrt(3/2) times the population SD, so it doesn't change any comparison
-          # NA if any of the three times is missing
-          # Kinetic_Synchronization_backup uses Time_hyoid_backup (Nasal-Hyoid distance) instead of the skull-frame Time_hyoid
-            # Time_cranial needs the eye either way, so the backup only adds videos where the eye wasn't visible in the same frames as the hyoid
-        
-          # Kinetic_Synchronization
-          peakTimes <- cbind(finalData$Time_hyoid, finalData$Ttpg, finalData$Time_cranial)
-          finalData$Kinetic_Synchronization <- apply(peakTimes, 1, sd) / finalData$Ttotal
-        
-          # Kinetic_Synchronization_backup
-          peakTimesBackup <- cbind(finalData$Time_hyoid_backup, finalData$Ttpg, finalData$Time_cranial)
-          finalData$Kinetic_Synchronization_backup <- apply(peakTimesBackup, 1, sd) / finalData$Ttotal
-        
-        
-          # Order of the peaks (s). SD loses the order, so these keep it
-            # Positive = that peak came after peak gape
-          finalData$Lag_hyoid_gape   <- finalData$Time_hyoid - finalData$Ttpg
-          finalData$Lag_cranial_gape <- finalData$Time_cranial - finalData$Ttpg
-        
-        
-          # Checks
-            # How many videos have each version?
-          sum(!is.na(finalData$Kinetic_Synchronization))
-          sum(!is.na(finalData$Kinetic_Synchronization_backup))
-        
-            # Videos where both exist should be close. A low correlation means the two hyoid peak times disagree
-          cor(finalData$Kinetic_Synchronization, finalData$Kinetic_Synchronization_backup, use = "complete.obs")
-        
-            # Typical order of the peaks
-          summary(finalData$Lag_hyoid_gape)
-          summary(finalData$Lag_cranial_gape)
 
 
 
 
-        # finalTimeSeriesData: x_mouth_t, Hyoid_depression_t
 
 
 
@@ -2397,13 +2424,24 @@ for(i in 1:nVids) {
       betaPhase <- c(betaPhase, ifelse(framesNow[keepNow] <= peakFrameNow, "opening", "closing"))
     }
 
-    if(length(betaH) < betaMinFrames) {
+    if(length(betaH) >= betaMinFrames) {
+
+      hyoidBeta <- sum(betaR * betaH) / sum(betaH^2)
+      betaResid <- betaR - hyoidBeta * betaH
+      betaR2    <- 1 - sum(betaResid^2) / sum((betaR - mean(betaR))^2)   # centered R2, a stricter test than the uncentered one for a line through zero
+
+    } else if(!is.null(testVids)) {
+
+      # Test mode: too few eye-based frames in the test videos, so use the fixed test value
+      hyoidBeta <- testBeta
+      betaResid <- numeric(0)
+      betaPhase <- character(0)
+      betaR2    <- NA_real_
+      print(paste0("TEST MODE: only ", length(betaH), " eye-based frames, so using testBeta = ", testBeta))
+
+    } else {
       stop("Only ", length(betaH), " eye-based strike frames with both hyoid depression and retraction. Need at least betaMinFrames = ", betaMinFrames, " to fit the retraction ratio")
     }
-
-    hyoidBeta  <- sum(betaR * betaH) / sum(betaH^2)
-    betaResid  <- betaR - hyoidBeta * betaH
-    betaR2     <- 1 - sum(betaResid^2) / sum((betaR - mean(betaR))^2)   # centered R2, a stricter test than the uncentered one for a line through zero
 
 
   ##### Triangle depth for videos without the eye
@@ -2658,40 +2696,40 @@ for(i in 1:nVids) {
   ##### Checks
 
     # Retraction ratio fit
-  hyoidBeta
-  length(unique(eyeRows))          # eye-based videos used
-  length(betaH)                     # frames used
-  betaR2                            # how well a line through zero fits. Low = retraction isn't proportional to depression
-  tapply(betaResid, betaPhase, mean)   # mean residual on opening vs closing. A clear difference = different paths, so one beta is a compromise
+  print(hyoidBeta)
+  print(length(unique(eyeRows)))          # eye-based videos used
+  print(length(betaH))                     # frames used
+  print(betaR2)                            # how well a line through zero fits. Low = retraction isn't proportional to depression
+  print(tapply(betaResid, betaPhase, mean))   # mean residual on opening vs closing. A clear difference = different paths, so one beta is a compromise
 
     # How many videos used each depth source
-  table(finalData$Hyoid_depth_source, useNA = "ifany")
+  print(table(finalData$Hyoid_depth_source, useNA = "ifany"))
 
     # Scan consistency, one row per fish
   scanRowsNow <- !duplicated(finalData$Unique.ID)
       # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. Should be close (they differ only by the ceratohyal stand-in for depth)
-  summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$D_head^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow])
+  print(summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$D_head^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow]))
       # Resting ceratohyal half-width from the bar vs. W_head/2. Should be close to 0
-  summary(sqrt(finalData$Ceratohyal_length^2 - finalData$Ceratohyal_AP_rest^2 - finalData$Ceratohyal_DV_rest^2)[scanRowsNow] - finalData$W_head[scanRowsNow]/2)
+  print(summary(sqrt(finalData$Ceratohyal_length^2 - finalData$Ceratohyal_AP_rest^2 - finalData$Ceratohyal_DV_rest^2)[scanRowsNow] - finalData$W_head[scanRowsNow]/2))
 
     # Eye-based vs. triangle videos: depression, width and volume should be in the same range
-  tapply(finalData$Hyoid_Max, finalData$Hyoid_depth_source, summary)
-  tapply(finalData$Buccal_width_expansion_Max, finalData$Hyoid_depth_source, summary)
-  tapply(finalData$V_buccal_Max, finalData$Hyoid_depth_source, summary)
+  print(tapply(finalData$Hyoid_Max, finalData$Hyoid_depth_source, summary))
+  print(tapply(finalData$Buccal_width_expansion_Max, finalData$Hyoid_depth_source, summary))
+  print(tapply(finalData$V_buccal_Max, finalData$Hyoid_depth_source, summary))
 
     # How often width had to be floored at 0, by depth source
   strikeFramesN <- finalData$endFrame - finalData$startFrame + 1
       # Share of videos with any floored frames
-  tapply(finalData$Width_hypaxial_floor_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE)
-  tapply(finalData$Width_total_floor_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE)
+  print(tapply(finalData$Width_hypaxial_floor_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE))
+  print(tapply(finalData$Width_total_floor_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE))
       # Fraction of strike frames floored
-  tapply(finalData$Width_hypaxial_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary)
-  tapply(finalData$Width_total_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary)
+  print(tapply(finalData$Width_hypaxial_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary))
+  print(tapply(finalData$Width_total_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary))
 
     # Are small gapes dominating U_flow_ff_predicted?   ### CHECK
       # Ratio far from 1, or a weak correlation, means the frames near Tstart/Tend (small A) are driving the full-strike mean
-  summary(finalData$U_flow_ff_predicted_mean / finalData$U_flow_ff_predicted_mean_bigGape)
-  cor(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_bigGape, use = "complete.obs")     
+  print(summary(finalData$U_flow_ff_predicted_mean / finalData$U_flow_ff_predicted_mean_bigGape))
+  print(cor(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_bigGape, use = "complete.obs"))     
         
         
         
@@ -2736,34 +2774,34 @@ for(i in 1:nVids) {
 
   # Checks
     # How many individuals have each ROM?
-  sapply(names(romPairs), function(romNow) length(unique(finalData$Unique.ID[!is.na(finalData[[romNow]])])))
+  print(sapply(names(romPairs), function(romNow) length(unique(finalData$Unique.ID[!is.na(finalData[[romNow]])]))))
 
     # Mandible_depression_ROM should equal Mandible_length * sin(Mandible_ROM) exactly, because each fish has one Mandible_length
-  all.equal(finalData$Mandible_depression_ROM, finalData$Mandible_length * sin(finalData$Mandible_ROM))
+  print(all.equal(finalData$Mandible_depression_ROM, finalData$Mandible_length * sin(finalData$Mandible_ROM)))
   
     # Maxilla sign check: most videos should have positive maxilla rotation at tmax (ventral tip swung anteriorly)
-  sum(finalData$Maxilla_ang_tmax < 0, na.rm=TRUE)
-  sum(finalData$Maxilla_ang_tmax > 0, na.rm=TRUE)
+  print(sum(finalData$Maxilla_ang_tmax < 0, na.rm=TRUE))
+  print(sum(finalData$Maxilla_ang_tmax > 0, na.rm=TRUE))
 
     # Measured vs. predicted maxilla angle. Should be positively correlated. If negative, oralOpenSign or the theta3 sign convention is flipped   ### CHECK
-  cor(finalData$Maxilla_ang_tmax, finalData$Maxilla_ang_predicted_tmax, use = "complete.obs")
+  print(cor(finalData$Maxilla_ang_tmax, finalData$Maxilla_ang_predicted_tmax, use = "complete.obs"))
   
   
     # Skipped analyses: how many videos per section and reason
-  table(skippedVids$section)
-  table(skippedVids$reason)
+  print(table(skippedVids$section))
+  print(table(skippedVids$reason))
 
     # Videos with the most problems (best ones to look at first when checking landmarks)
-  head(sort(table(skippedVids$vidName), decreasing = TRUE), 20)
+  print(head(sort(table(skippedVids$vidName), decreasing = TRUE), 20))
 
     # Save the log so I can work through it alongside the videos
   write.csv(skippedVids, 'PATH/TO/skippedVids.csv', row.names = FALSE)   ### CHANGE path
   
   
   
-  summary(finalData$strikeAxisTilt * 180/pi) # shows how tilted strikes actually are.
+  print(summary(finalData$strikeAxisTilt * 180/pi)) # shows how tilted strikes actually are.
   
-  table(finalData$strikeAxisFromNasal) # shows how often the axis fell back to the camera x-axis.
+  print(table(finalData$strikeAxisFromNasal)) # shows how often the axis fell back to the camera x-axis.
                           # If few strikes fall back and most tilts are only a few degrees, the projection is changing little compared with x-only ram, which is fine.
   
   
@@ -2772,8 +2810,104 @@ for(i in 1:nVids) {
   
     
 ############################     CALCULATED VARIABLES      ############################
-  
-  #Relative_ttpg, Relative_tmax, Kinetic_Synchronization
+
+
+###########################
+# Kinetic synchronization #
+###########################
+  # SD of the three peak times divided by strike duration. Low = more synchronized
+  # All three times are measured from Tstart (gape first passes 20% of its range): Time_hyoid, Ttpg, Time_cranial
+  # sd() divides by n-1. With 3 values that's always sqrt(3/2) times the population SD, so it doesn't change any comparison
+  # NA if any of the three times is missing
+  # Kinetic_Synchronization_backup uses Time_hyoid_backup (Nasal-Hyoid distance) instead of the skull-frame Time_hyoid
+    # Time_cranial needs the eye either way, so the backup only adds videos where the eye wasn't visible in the same frames as the hyoid
+
+  # Kinetic_Synchronization
+  peakTimes <- cbind(finalData$Time_hyoid, finalData$Ttpg, finalData$Time_cranial)
+  finalData$Kinetic_Synchronization <- apply(peakTimes, 1, sd) / finalData$Ttotal
+
+  # Kinetic_Synchronization_backup
+  peakTimesBackup <- cbind(finalData$Time_hyoid_backup, finalData$Ttpg, finalData$Time_cranial)
+  finalData$Kinetic_Synchronization_backup <- apply(peakTimesBackup, 1, sd) / finalData$Ttotal
+
+
+  # Order of the peaks (s). SD loses the order, so these keep it
+    # Positive = that peak came after peak gape
+  finalData$Lag_hyoid_gape   <- finalData$Time_hyoid - finalData$Ttpg
+  finalData$Lag_cranial_gape <- finalData$Time_cranial - finalData$Ttpg
+
+
+  # Checks
+    # How many videos have each version?
+  print(sum(!is.na(finalData$Kinetic_Synchronization)))
+  print(sum(!is.na(finalData$Kinetic_Synchronization_backup)))
+
+    # Videos where both exist should be close. A low correlation means the two hyoid peak times disagree
+  print(cor(finalData$Kinetic_Synchronization, finalData$Kinetic_Synchronization_backup, use = "complete.obs"))
+
+    # Typical order of the peaks
+  print(summary(finalData$Lag_hyoid_gape))
+  print(summary(finalData$Lag_cranial_gape))
+
+
+
+#############
+# QC plots  #
+#############
+  # One PNG per video, 8 panels. Grey dotted lines = Tstart and Tend, red line = tmax
+  # Dashed second lines: camera-frame maxilla angle, hyoid excursion backup, body ram
+  # Angles are shown in degrees for readability (stored in radians)
+  # The title shows the hyoid depth source and how many entries the video has in skippedVids
+
+  if(saveQCplots) {
+
+    dir.create(qcPlotFolder, showWarnings = FALSE, recursive = TRUE)
+    radToDeg <- 180 / pi
+
+    for(i in 1:nVids) {
+
+      nNow <- finalData$nFrames[i]
+      if(is.na(nNow)) {
+        next
+      }
+
+      timeNow   <- (0:(nNow - 1)) / finalData$frameRate[i]
+      fNow      <- 1:nNow
+      tStartNow <- finalData$Tstart[i]
+      tEndNow   <- finalData$Tend[i]
+      tmaxNow   <- finalData$tmax[i]
+      tsNow     <- finalTimeSeriesData
+
+      png(file.path(qcPlotFolder, paste0(fileNames2[i], ".png")), width = 1800, height = 850, res = 110)
+      par(mfrow = c(2, 4), mar = c(4, 4, 2.5, 1), oma = c(0, 0, 2.5, 0))
+
+      qcPanel(timeNow, tsNow$R_t[1, fNow, i], NULL,
+              "Gape radius", "mm", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$Protrusion_t[1, fNow, i], NULL,
+              "Protrusion", "mm", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$Mandible_ang_t[1, fNow, i] * radToDeg, NULL,
+              "Mandible angle", "degrees", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$Neurocranium_rotation_t[1, fNow, i] * radToDeg, NULL,
+              "Neurocranium rotation", "degrees", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$Maxilla_ang_t[1, fNow, i] * radToDeg, tsNow$Maxilla_ang_cam_t[1, fNow, i] * radToDeg,
+              "Maxilla angle (dashed = camera frame)", "degrees", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$Hyoid_depression_t[1, fNow, i], tsNow$Hyoid_excursion_t_backup[1, fNow, i],
+              "Hyoid depression (dashed = excursion)", "mm", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$U_ram_t[1, fNow, i], tsNow$U_ram_body_t[1, fNow, i],
+              "Ram speed (dashed = body)", "mm/s", tStartNow, tEndNow, tmaxNow)
+      qcPanel(timeNow, tsNow$V_buccal_t[1, fNow, i], NULL,
+              "Buccal volume", "mm^3", tStartNow, tEndNow, tmaxNow)
+
+      nLogNow <- sum(skippedVids$vidName == fileNames2[i])
+      mtext(paste0(fileNames2[i], "     |     hyoid: ", finalData$Hyoid_depth_source[i], "     |     ", nLogNow, " entries in skippedVids"),
+            outer = TRUE, cex = 1.1)
+
+      dev.off()
+    }
+
+    print(paste0("QC plots saved to: ", qcPlotFolder))
+  }
+
   
   
   
