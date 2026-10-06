@@ -229,6 +229,116 @@ h5ls(file=fileNames[1])
       rbind(skippedLog, data.frame(vidName = vidName, section = section, reason = reason))
     }
     
+    
+    
+    
+    
+    
+    # Hyoid outputs from a raw depth (or distance) series and its resting zero
+      # Used three times: skull-frame depth and nasal-distance excursion inside the loop, and triangle depth after the loop
+      # raw_t = depth or distance in each frame (mm), rest = resting value from the scans (mm, NA if no scan)
+      # The spline is fit to the raw series, so velocities and Time don't depend on the zero
+      # Values that depend on the zero are left NA if depression goes below -negTolerance in any visible frame (the zero must be wrong)
+      # Returns a list:
+        # values: Time, visible_frac, vel_mean_visible, vel_tmax, Max, tmax, t_mean, vel_mean (NA if not calculated)
+        # vel_t, depression_t: time series (NULL if not calculated)
+        # log: reasons to add to skippedVids
+    hyoidOutputs <- function(raw_t, rest, timeSeriesNow, startPos, endPos, tmax, Tstart,
+                             lambdaRefDerived, spanRef, negTolerance, missingMsg) {
+
+      out <- list(values = c(Time = NA_real_, visible_frac = NA_real_, vel_mean_visible = NA_real_, vel_tmax = NA_real_,
+                             Max = NA_real_, tmax = NA_real_, t_mean = NA_real_, vel_mean = NA_real_),
+                  vel_t = NULL, depression_t = NULL, log = character())
+
+      goodFrames   <- which(!is.na(raw_t))
+      strikeFrames <- intersect(startPos:endPos, goodFrames)
+
+      if(length(goodFrames) == 0) {
+        out$log <- missingMsg
+        return(out)
+      }
+      if(length(strikeFrames) == 0) {
+        out$log <- "Hyoid not visible between Tstart and Tend"
+        return(out)
+      }
+
+      # Time of peak (s from Tstart), from the raw series so it doesn't depend on the zero
+      peakFrame <- strikeFrames[which.max(raw_t[strikeFrames])]
+      out$values["Time"] <- timeSeriesNow[peakFrame] - Tstart
+
+      # Fraction of Tstart-Tend frames where the hyoid was visible
+      out$values["visible_frac"] <- length(strikeFrames) / length(startPos:endPos)
+
+      rawTmax <- NA_real_
+
+      if(length(goodFrames) >= 10) {
+
+        # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
+        spanNow   <- max(goodFrames) - min(goodFrames)
+        lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
+
+        rawSmooth <- smooth.spline(x = timeSeriesNow[goodFrames], y = raw_t[goodFrames], lambda = lambdaNow)
+
+        # Velocity (mm/s). Same as d(depression)/dt, because the zero is a constant
+        vel_t <- rep(NA_real_, length(raw_t))
+        vel_t[goodFrames] <- predict(rawSmooth, x = timeSeriesNow[goodFrames], deriv = 1)$y
+        out$vel_t <- vel_t
+
+        # Plain mean velocity over visible frames from Tstart to the peak
+        velFrames <- intersect(startPos:peakFrame, goodFrames)
+        out$values["vel_mean_visible"] <- mean(vel_t[velFrames])
+
+        if(!is.na(tmax)) {
+          if(tmax >= timeSeriesNow[min(goodFrames)] && tmax <= timeSeriesNow[max(goodFrames)]) {
+            rawTmax <- predict(rawSmooth, x = tmax, deriv = 0)$y
+            out$values["vel_tmax"] <- predict(rawSmooth, x = tmax, deriv = 1)$y
+          } else {
+            out$log <- c(out$log, "Values at tmax not calculated: tmax outside the frames where the hyoid is visible")
+          }
+        }
+      } else {
+        out$log <- c(out$log, "Fewer than 10 visible frames: no velocities or values at tmax")
+      }
+
+      # Everything below needs the scan zero. Missing scan values aren't logged, since they aren't a landmarking problem
+      if(is.na(rest)) {
+        return(out)
+      }
+
+      depression_t <- raw_t - rest
+      out$depression_t <- depression_t   # saved even if negative, so the problem can be inspected
+
+      if(any(depression_t[goodFrames] < -negTolerance)) {
+        out$log <- c(out$log, paste0("FLAG: negative depression (min ", round(min(depression_t[goodFrames]), 3), " mm). Depression values not saved"))
+        return(out)
+      }
+
+      # Largest depression during the strike (mm)
+      out$values["Max"] <- depression_t[peakFrame]
+
+      # Depression at tmax (mm). Raw spline value minus the zero, identical to fitting the spline to depression. NA if tmax wasn't calculated
+      out$values["tmax"] <- rawTmax - rest
+
+      # Mean depression over Tstart-Tend (mm). 0 at Tstart/Tend where not visible, gaps filled linearly
+      depressionStrike <- depression_t[startPos:endPos]
+      if(is.na(depressionStrike[1])) {
+        depressionStrike[1] <- 0
+      }
+      if(is.na(depressionStrike[length(depressionStrike)])) {
+        depressionStrike[length(depressionStrike)] <- 0
+      }
+      depressionStrike <- na_interpolation(depressionStrike, option = "linear")
+      out$values["t_mean"] <- mean(depressionStrike)
+
+      # Mean velocity from Tstart to the peak (mm/s) = Max / Time, with depression 0 at Tstart
+      if(out$values["Time"] > 0) {
+        out$values["vel_mean"] <- out$values["Max"] / out$values["Time"]
+      } else {
+        out$log <- c(out$log, "FLAG: peak depression is at Tstart, so Hyoid_vel_mean was not calculated")
+      }
+
+      out
+    }
 
 
 
@@ -333,15 +443,28 @@ finalData <- data.frame(vidName = fileNames2,
                         Hyoid_vel_mean = rep(NA_real_, nVids),
                         Hyoid_vel_mean_visible = rep(NA_real_, nVids),
                         Hyoid_visible_frac = rep(NA_real_, nVids),
-                        Hyoid_depression_tmax_backup = rep(NA_real_, nVids),
-                        Hyoid_vel_tmax_backup = rep(NA_real_, nVids),
-                        Hyoid_depression_t_mean_backup = rep(NA_real_, nVids),
-                        Hyoid_Max_backup = rep(NA_real_, nVids),
-                        Hyoid_ROM_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_tmax_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_vel_tmax_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_t_mean_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_Max_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_ROM_backup = rep(NA_real_, nVids),
                         Time_hyoid_backup = rep(NA_real_, nVids),
-                        Hyoid_vel_mean_backup = rep(NA_real_, nVids),
-                        Hyoid_vel_mean_visible_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_vel_mean_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_vel_mean_visible_backup = rep(NA_real_, nVids),
                         Hyoid_visible_frac_backup = rep(NA_real_, nVids),
+                        nFrames = rep(NA_real_, nVids),
+                        startFrame = rep(NA_real_, nVids),
+                        endFrame = rep(NA_real_, nVids),
+                        Hyoid_depth_source = rep(NA_character_, nVids),
+                        V_buccal_vel_tmax = rep(NA_real_, nVids),
+                        V_buccal_acc_tmax = rep(NA_real_, nVids),
+                        V_buccal_Max = rep(NA_real_, nVids),
+                        Buccal_width_expansion_Max = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_bigGape = rep(NA_real_, nVids),
+                        Width_hypaxial_floor_frames = rep(NA_real_, nVids),
+                        Width_total_floor_frames = rep(NA_real_, nVids),
+                        V_buccal_neuroIncluded = rep(NA, nVids),
                         U_ram_mean_frames = rep(NA_real_, nVids),
                         U_ram_body_tmax = rep(NA_real_, nVids),
                         U_ram_body_acc_tmax = rep(NA_real_, nVids),
@@ -349,6 +472,13 @@ finalData <- data.frame(vidName = fileNames2,
                         U_ram_body_mean_frames = rep(NA_real_, nVids),
                         strikeAxisTilt = rep(NA_real_, nVids),
                         strikeAxisFromNasal = rep(NA, nVids),
+                        Kinetic_Synchronization_backup = rep(NA_real_, nVids),
+                        Lag_hyoid_gape = rep(NA_real_, nVids),
+                        Lag_cranial_gape = rep(NA_real_, nVids),
+                        A_tmax = rep(NA_real_, nVids),
+                        A_vel_tmax = rep(NA_real_, nVids),
+                        A_mean = rep(NA_real_, nVids),
+                        A_Max = rep(NA_real_, nVids),
                         Cov_R_Uram = rep(NA_real_, nVids),
                         Cov_R_Uflowff = rep(NA_real_, nVids),
                         Cov_R_Uflowefmeas = rep(NA_real_, nVids)
@@ -404,9 +534,20 @@ finalTimeSeriesData <- list(R_t = array(data=NA, dim = c(1,longestVid, nVids), d
                             Neurocranium_tip_disp_eye_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_tip_disp_eye_t", NULL, fileNames2)),
                             Maxilla_ang_cam_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_ang_cam_t", NULL, fileNames2)),
                             Maxilla_tip_disp_cam_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_tip_disp_cam_t", NULL, fileNames2)),
-                            Hyoid_depression_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_depression_t_backup", NULL, fileNames2)),
-                            Hyoid_vel_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_vel_t_backup", NULL, fileNames2)),
-                            U_ram_body_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_ram_body_t", NULL, fileNames2))
+                            Hyoid_excursion_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_excursion_t_backup", NULL, fileNames2)),
+                            Hyoid_excursion_vel_t_backup = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_excursion_vel_t_backup", NULL, fileNames2)),
+                            Hyoid_retraction_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_retraction_t", NULL, fileNames2)),
+                            Hyoid_nasal_dist_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Hyoid_nasal_dist_t", NULL, fileNames2)),
+                            Ceratohyal_rotation_angle_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Ceratohyal_rotation_angle_t", NULL, fileNames2)),
+                            Ceratohyal_lateral_angle_hypaxial_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Ceratohyal_lateral_angle_hypaxial_t", NULL, fileNames2)),
+                            Ceratohyal_lateral_angle_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Ceratohyal_lateral_angle_t", NULL, fileNames2)),
+                            Ceratohyal_half_width_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Ceratohyal_half_width_t", NULL, fileNames2)),
+                            Buccal_width_expansion_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Buccal_width_expansion_t", NULL, fileNames2)),
+                            V_buccal_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("V_buccal_t", NULL, fileNames2)),
+                            V_buccal_vel_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("V_buccal_vel_t", NULL, fileNames2)),
+                            U_flow_ff_predicted_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_flow_ff_predicted_t", NULL, fileNames2)),
+                            U_ram_body_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_ram_body_t", NULL, fileNames2)),
+                            A_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("A_t", NULL, fileNames2))
                             )
 
 
@@ -601,7 +742,11 @@ length(unique(finalData$Unique.ID))
         D_head                     = "D_head",                   ### CHANGE
         Neurocranium_length        = "Neurocranium_length",      ### CHANGE
         Ceratohyal_length          = "Ceratohyal_length",        ### CHANGE
-        Hyoid_rest                 = "Hyoid_rest",               ### CHANGE  resting hyoid position proxy
+        D_head_backup              = "D_head_backup",            ### CHANGE  nasal tip to resting hyoid (urohyal) point, lateral view
+        Nasal_eye_AP_length        = "Nasal_eye_AP_length",      ### CHANGE  AP distance, nasal tip to eye-level landmark (caudal base of parasphenoid)
+        Hyoid_rest_AP              = "Hyoid_rest_AP",            ### CHANGE  AP distance, eye-level landmark to rostral ceratohyal tip. Positive if the tip is posterior
+        Ceratohyal_AP_rest         = "Ceratohyal_AP_rest",       ### CHANGE  AP distance between rostral and caudal ceratohyal tips at rest
+        Ceratohyal_DV_rest         = "Ceratohyal_DV_rest",       ### CHANGE  DV distance between rostral and caudal ceratohyal tips at rest. Positive if the rostral tip is ventral
         # Oral four-bar
         Mandible_input_length      = "Mandible_input_length",    ### CHANGE  input link
         Maxilla_length             = "Maxilla_length",           ### CHANGE  coupler link
@@ -768,7 +913,40 @@ length(unique(finalData$Unique.ID))
       # This moving measurement is implimented in a Hampel filter
 
 
+#####################
+# Analysis settings #
+#####################
+  # Created before the loop so they survive the per-video reset and can be used after the loop
 
+  # Smoothing
+  lambdaRef        <- 5e-6
+  lambdaRefDerived <- lambdaRef/5       # smoothing for derived series (R_t etc.). Should do less smoothing than the original pass
+  spanRef          <- 73
+  lambdaRefRam     <- lambdaRefDerived  ### CHANGE  smoothing for x_mouth and the nasal point in the Ram section. Acceleration is very sensitive to it
+  ######################### RESET THESE BASED ON TEST VIDEO FITS #########################
+
+  # Hyoid
+  hyoidNegTolerance <- 0    ### CHANGE  how far below 0 (mm) depression can go before it counts as negative. Raise if tracking noise trips the flag
+  betaMinFrames     <- 50   ### CHANGE  minimum number of eye-based strike frames needed to fit the pooled retraction-to-depression ratio
+
+  # Buccal volume
+  uFlowAreaFrac <- 0.5      ### CHANGE  big-gape mean of U_flow_ff_predicted only uses frames where A >= this fraction of A_Max
+
+  # finalData columns for each hyoid version. Names on the left match the values returned by hyoidOutputs()
+  hyoidColsMain <- c(Time = "Time_hyoid", visible_frac = "Hyoid_visible_frac", vel_mean_visible = "Hyoid_vel_mean_visible",
+                     vel_tmax = "Hyoid_vel_tmax", Max = "Hyoid_Max", tmax = "Hyoid_depression_tmax",
+                     t_mean = "Hyoid_depression_t_mean", vel_mean = "Hyoid_vel_mean")
+
+  hyoidColsBackup <- c(Time = "Time_hyoid_backup", visible_frac = "Hyoid_visible_frac_backup", vel_mean_visible = "Hyoid_excursion_vel_mean_visible_backup",
+                       vel_tmax = "Hyoid_excursion_vel_tmax_backup", Max = "Hyoid_excursion_Max_backup", tmax = "Hyoid_excursion_tmax_backup",
+                       t_mean = "Hyoid_excursion_t_mean_backup", vel_mean = "Hyoid_excursion_vel_mean_backup")
+  
+  
+  
+  
+  
+  
+  
 
 
 #Record everything that exists before the analysis loop
@@ -858,13 +1036,6 @@ for(i in 1:nVids) {
         ##### Smooth the data using smooth.spline
           # Helps keep first and second derivatives useful for velocity and acceleration
         
-        lambdaRef <- 5e-6
-          lambdaRefDerived <- lambdaRef/5   # smoothing for derived series (R_t etc.). Should do less smoothing than the original pass.
-          
-        spanRef <- 73
-        
-        
-        lambdaRefRam <- lambdaRefDerived   ### CHANGE  smoothing for x_mouth and the nasal point in the Ram section. Tuned separately because acceleration (2nd derivative) is very sensitive to it
         
         ######################### RESET THESE BASED ON TEST VIDEO FITS #########################
         
@@ -1096,6 +1267,50 @@ for(i in 1:nVids) {
           } else if(!is.na(finalData$tmax[i]) && is.na(finalData$R_tmax[i])) {
             skippedVids <- addSkip(skippedVids, fileNames2[i], "Gape", "Values at tmax not calculated: tmax outside tracked frames or < 10 frames")
           }
+        
+        
+        
+        
+        
+        ##############
+        # Gape area  #
+        ##############
+
+        # A(t) = (pi * W_jaw / 2) * R(t): ellipse with half-width W_jaw/2 (tooth row, from scans) and half-height R(t)
+          # W_jaw is fixed for each fish, so every gape area value is R times a constant
+          # Values at tmax, the mean and the max come straight from the R values, so the SEM equations are exact identities
+          # Assumes the jaws don't widen during the strike
+        # Variables
+          # A_t:        gape area over time (mm^2)
+          # A_tmax:     (pi * W_jaw / 2) * R_tmax (mm^2)
+          # A_vel_tmax: (pi * W_jaw / 2) * R_vel_tmax (mm^2/s)
+          # A_mean:     (pi * W_jaw / 2) * R_t_mean, mean over Tstart-Tend (mm^2)
+          # A_Max:      (pi * W_jaw / 2) * largest R during the strike (mm^2)
+        # NA if W_jaw is missing. Not logged, since missing scans aren't a landmarking problem
+
+          gapeAreaConst <- pi * finalData$W_jaw[i] / 2
+
+          if(!is.na(gapeAreaConst)) {
+
+            # A_t (mm^2)
+            A_t <- gapeAreaConst * R_t
+              #save it to the final array
+            finalTimeSeriesData$A_t[1, 1:length(A_t), i] <- A_t
+
+            # A_tmax (mm^2) and A_vel_tmax (mm^2/s). NA if R wasn't calculated at tmax
+            finalData$A_tmax[i]     <- gapeAreaConst * finalData$R_tmax[i]
+            finalData$A_vel_tmax[i] <- gapeAreaConst * finalData$R_vel_tmax[i]
+
+            # A_mean (mm^2). NA if there's no Tstart
+            finalData$A_mean[i] <- gapeAreaConst * finalData$R_t_mean[i]
+
+            # A_Max (mm^2)
+            if(!is.na(finalData$Tstart[i])) {
+              finalData$A_Max[i] <- gapeAreaConst * max(R_t[startPos:endPos], na.rm=TRUE)
+            }
+          }
+        
+        
         
         
         
@@ -1764,59 +1979,77 @@ for(i in 1:nVids) {
           }
           
           
+          
+          
+          
+          
+          
+          
+          
+          
         #########
         # Hyoid #
         #########
 
         # Hyoid landmark = anterior tip of the urohyal, seen through the skin
-          # Only visible mid-strike, so the resting position (zero) comes from the scans
-        # Two versions, each saved separately
-          # Skull frame (main): depth of the hyoid below the Eye-Nasal line, measured in each frame
-            # The line comes from the same frame, so neurocranium rotation is already removed. Needs Eye, Nasal and Hyoid in the same frame
-            # Zero = D_head. Its top landmark lines up with the eye center in lateral view, and its bottom (caudal ceratohyal tips)
-              # is about the height of the fully retracted urohyal, and more stable across scans than the urohyal itself
-          # Backup (less reliable): Nasal-Hyoid distance. No eye needed, but mixes hyoid retraction in with depression
-            # Zero = D_head_backup (scan distance from the nasal tip to the resting urohyal tip). Inherits any urohyal depression in the scan
-            # All backup columns end in "_backup"
-        # The spline is fit to the raw depth/distance, so these don't depend on the zero and are saved even without scan values:
-          # Hyoid_vel_t, Hyoid_vel_tmax, Time_hyoid, Hyoid_vel_mean_visible, Hyoid_visible_frac
-        # These depend on the zero, and are NOT written to finalData if depression goes negative in any visible frame (the zero must be wrong):
-          # Hyoid_depression_tmax, Hyoid_Max, Hyoid_depression_t_mean, Hyoid_vel_mean
-        # Variables
-          # Hyoid_depression_t:      raw depth (or distance) minus the scan zero (mm, depression is positive)
-          # Hyoid_vel_t:             d(depression)/dt from a spline (mm/s)
-          # Time_hyoid:              time of max depression, measured from Tstart (s)
-          # Hyoid_depression_t_mean: mean from Tstart to Tend. Missing frames at Tstart/Tend are set to 0, and gaps are linearly interpolated
-          # Hyoid_vel_mean:          Hyoid_Max / Time_hyoid. Exact mean velocity from Tstart to the peak, if depression is 0 at Tstart
-          # Hyoid_vel_mean_visible:  plain mean of Hyoid_vel_t over visible frames from Tstart to the peak
-          # Hyoid_visible_frac:      fraction of Tstart-Tend frames where the hyoid was visible (to check interpolation later)
+          # Only visible mid-strike, so resting positions come from the scans
+        # Main version (Hyoid_*): dorsoventral depth below the Eye-Nasal line, minus D_head
+          # Videos with the eye: measured here, in the skull frame (line taken from the same frame, so neurocranium rotation is already removed)
+          # Videos without the eye: calculated after the loop from the Nasal-Hyoid distance with the triangle and the pooled retraction ratio
+          # Hyoid_depth_source records which ("eye" or "triangle")
+        # Hyoid_retraction_t (eye videos): posterior movement along the Eye-Nasal line, minus Hyoid_rest_AP
+        # Backup (Hyoid_excursion_*_backup): change in Nasal-Hyoid distance from D_head_backup
+          # Not a depression: mixes retraction with dorsoventral motion. Kept as a separate phenotype
+        # All per-version calculations are in hyoidOutputs() (functions section)
 
-          hyoidNegTolerance <- 0   ### CHANGE  how far below 0 (mm) depression can go before it counts as negative. Raise if tracking noise trips the flag
+          # Saved for the after-loop pass (triangle depth and buccal volume), which works from the saved time series
+          finalData$nFrames[i]    <- length(timeSeriesNow)
+          finalData$startFrame[i] <- startPos
+          finalData$endFrame[i]   <- endPos
 
 
-          ##### Skull-frame depth below the Eye-Nasal line (mm)
-            # Unit vector perpendicular to the current Eye->Nasal line, pointing ventrally for either facing direction (y flipped so up is positive)
+          ##### Skull frame: depth below, and position along, the Eye-Nasal line (mm)
+            # y is flipped so up is positive (image y points down)
 
             vxEN <- xNasal - xEye
             vyEN <- -(yNasal - yEye)
             lengthEN <- sqrt(vxEN^2 + vyEN^2)
 
+            # Unit vector perpendicular to the Eye->Nasal line, pointing ventrally for either facing direction
             xVentral <-  finalData$strikeDirection[i] * vyEN / lengthEN
             yVentral <- -finalData$strikeDirection[i] * vxEN / lengthEN
 
-            hyoidDepthSkull_t <- (xHyoid - xEye)*xVentral - (yHyoid - yEye)*yVentral
+            # Unit vector along the line, pointing posteriorly (from the nasal toward the eye)
+            xPosterior <- -vxEN / lengthEN
+            yPosterior <- -vyEN / lengthEN
+
+            hyoidDepthSkull_t <- (xHyoid - xEye)*xVentral   - (yHyoid - yEye)*yVentral     # depth below the line
+            hyoidAlongSkull_t <- (xHyoid - xEye)*xPosterior - (yHyoid - yEye)*yPosterior   # distance behind the eye, along the line
 
 
-          ##### Backup: Nasal-Hyoid distance (mm)
+          ##### Hyoid_retraction_t (mm, eye videos only)
+            # Positive = moved posteriorly from rest
+
+            if(!is.na(finalData$Hyoid_rest_AP[i])) {
+              Hyoid_retraction_t <- hyoidAlongSkull_t - finalData$Hyoid_rest_AP[i]
+                #save it to the final array
+              finalTimeSeriesData$Hyoid_retraction_t[1, 1:length(Hyoid_retraction_t), i] <- Hyoid_retraction_t
+            }
+
+
+          ##### Nasal-Hyoid distance (mm). Used for the excursion backup here, and for the triangle after the loop
 
             hyoidDistNasal_t <- sqrt((xHyoid - xNasal)^2 + (yHyoid - yNasal)^2)
+              #save it to the final array
+            finalTimeSeriesData$Hyoid_nasal_dist_t[1, 1:length(hyoidDistNasal_t), i] <- hyoidDistNasal_t
 
 
           # Settings for each version
-            # raw_t = measurement in each frame, rest = scan zero, sfx = added to the end of every column name
           hyoidVersions <- list(
-            list(section = "Hyoid",        missing = "Hyoid, Eye and Nasal never all present", raw_t = hyoidDepthSkull_t, rest = finalData$D_head[i],        sfx = ""),
-            list(section = "Hyoid backup", missing = "Hyoid and Nasal never both present",     raw_t = hyoidDistNasal_t,  rest = finalData$D_head_backup[i], sfx = "_backup")
+            list(section = "Hyoid",        missing = "Hyoid, Eye and Nasal never all present", raw_t = hyoidDepthSkull_t, rest = finalData$D_head[i],
+                 cols = hyoidColsMain,   depressionSeries = "Hyoid_depression_t",        velSeries = "Hyoid_vel_t"),
+            list(section = "Hyoid backup", missing = "Hyoid and Nasal never both present",   raw_t = hyoidDistNasal_t,  rest = finalData$D_head_backup[i],
+                 cols = hyoidColsBackup, depressionSeries = "Hyoid_excursion_t_backup",  velSeries = "Hyoid_excursion_vel_t_backup")
           )
 
 
@@ -1825,125 +2058,29 @@ for(i in 1:nVids) {
 
             for(hv in hyoidVersions) {
 
-              # Clear the tmax value from the other version (the loop reset only runs between videos, not between versions)
-              hyoidRaw_tmax <- NA_real_
+              hyOut <- hyoidOutputs(hv$raw_t, hv$rest, timeSeriesNow, startPos, endPos, finalData$tmax[i], finalData$Tstart[i],
+                                    lambdaRefDerived, spanRef, hyoidNegTolerance, hv$missing)
 
-              raw_t <- hv$raw_t
-              goodFrames_hy   <- which(!is.na(raw_t))
-              strikeFrames_hy <- intersect(startPos:endPos, goodFrames_hy)
-
-              if(length(goodFrames_hy) == 0) {
-                skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, hv$missing)
-                next
+              # Save values and time series
+              for(nm in names(hv$cols)) {
+                finalData[[hv$cols[[nm]]]][i] <- hyOut$values[[nm]]
+              }
+              if(!is.null(hyOut$vel_t)) {
+                finalTimeSeriesData[[hv$velSeries]][1, 1:length(hyOut$vel_t), i] <- hyOut$vel_t
+              }
+              if(!is.null(hyOut$depression_t)) {
+                finalTimeSeriesData[[hv$depressionSeries]][1, 1:length(hyOut$depression_t), i] <- hyOut$depression_t
               }
 
-              if(length(strikeFrames_hy) == 0) {
-                skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, "Hyoid not visible between Tstart and Tend")
-                next
+              # Log
+              for(msgNow in hyOut$log) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, msgNow)
               }
+            }
 
-
-              ##### Time_hyoid (s from Tstart)
-                # Peak of the raw measurement, so it doesn't depend on the zero
-
-                hyoidPeakFrame <- strikeFrames_hy[which.max(raw_t[strikeFrames_hy])]
-                finalData[[paste0("Time_hyoid", hv$sfx)]][i] <- timeSeriesNow[hyoidPeakFrame] - finalData$Tstart[i]
-
-
-              ##### Hyoid_visible_frac
-
-                finalData[[paste0("Hyoid_visible_frac", hv$sfx)]][i] <- length(strikeFrames_hy) / length(startPos:endPos)
-
-
-              ##### Spline on the raw measurement: velocity time series, visible mean velocity, and values at tmax
-
-                if(length(goodFrames_hy) >= 10) {
-
-                    # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
-                    spanNow   <- max(goodFrames_hy) - min(goodFrames_hy)
-                    lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
-
-                    hyoidRaw_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_hy], y = raw_t[goodFrames_hy], lambda = lambdaNow)
-
-                    # Hyoid_vel_t (mm/s). Only at frames that had data. Same as d(depression)/dt, because the zero is a constant
-                    Hyoid_vel_t <- rep(NA_real_, length(raw_t))
-                    Hyoid_vel_t[goodFrames_hy] <- predict(hyoidRaw_t_smooth, x = timeSeriesNow[goodFrames_hy], deriv = 1)$y
-                      #save it to the final array
-                    finalTimeSeriesData[[paste0("Hyoid_vel_t", hv$sfx)]][1, 1:length(Hyoid_vel_t), i] <- Hyoid_vel_t
-
-                    # Hyoid_vel_mean_visible (mm/s)
-                    velFramesNow <- intersect(startPos:hyoidPeakFrame, goodFrames_hy)
-                    finalData[[paste0("Hyoid_vel_mean_visible", hv$sfx)]][i] <- mean(Hyoid_vel_t[velFramesNow])
-
-
-                    if(!is.na(finalData$tmax[i])) {
-
-                        #Check that tmax is within the frames where the hyoid is visible
-                        if(finalData$tmax[i] >= timeSeriesNow[min(goodFrames_hy)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_hy)]) {
-
-                            # Raw value at tmax. Converted to depression below, once the zero is checked
-                            hyoidRaw_tmax <- predict(hyoidRaw_t_smooth, x = finalData$tmax[i], deriv = 0)$y
-
-                            # Hyoid_vel_tmax (mm/s)
-                            finalData[[paste0("Hyoid_vel_tmax", hv$sfx)]][i] <- predict(hyoidRaw_t_smooth, x = finalData$tmax[i], deriv = 1)$y
-
-                        } else {
-                            skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, "Values at tmax not calculated: tmax outside the frames where the hyoid is visible")
-                        }
-                    }
-
-                } else {
-                    skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, "Fewer than 10 visible frames: no velocities or values at tmax")
-                }
-
-
-              ##### Depression (needs the scan zero)
-                # Missing scan values aren't logged, since they aren't a landmarking problem
-
-                if(is.na(hv$rest)) {
-                  next
-                }
-
-                Hyoid_depression_t <- raw_t - hv$rest
-                  #save it to the final array. Saved even if negative, so the problem can be inspected
-                finalTimeSeriesData[[paste0("Hyoid_depression_t", hv$sfx)]][1, 1:length(Hyoid_depression_t), i] <- Hyoid_depression_t
-
-
-                # Negative depression means the scan zero doesn't match this video. Log it and don't save anything that depends on the zero
-                if(any(Hyoid_depression_t[goodFrames_hy] < -hyoidNegTolerance)) {
-                  skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, paste0("FLAG: negative depression (min ", round(min(Hyoid_depression_t[goodFrames_hy]), 3), " mm). Depression values not saved"))
-                  next
-                }
-
-
-                # Hyoid_Max (largest depression during the strike, mm)
-                finalData[[paste0("Hyoid_Max", hv$sfx)]][i] <- Hyoid_depression_t[hyoidPeakFrame]
-
-                # Hyoid_depression_tmax (mm)
-                  # Raw spline value minus the zero. Identical to fitting the spline to depression, because the zero is a constant
-                  # NA if tmax wasn't calculated above
-                finalData[[paste0("Hyoid_depression_tmax", hv$sfx)]][i] <- hyoidRaw_tmax - hv$rest
-
-                # Hyoid_depression_t_mean (mm)
-                  # Depression is assumed to be 0 at Tstart and Tend when the hyoid isn't visible there. Gaps are filled linearly
-                depressionStrike <- Hyoid_depression_t[startPos:endPos]
-                if(is.na(depressionStrike[1])) {
-                  depressionStrike[1] <- 0
-                }
-                if(is.na(depressionStrike[length(depressionStrike)])) {
-                  depressionStrike[length(depressionStrike)] <- 0
-                }
-                depressionStrike <- na_interpolation(depressionStrike, option = "linear")
-                finalData[[paste0("Hyoid_depression_t_mean", hv$sfx)]][i] <- mean(depressionStrike)
-
-                # Hyoid_vel_mean (mm/s)
-                  # Mean velocity from Tstart to the peak = (depression at peak - depression at Tstart) / time, with depression at Tstart = 0
-                timeHyoidNow <- finalData[[paste0("Time_hyoid", hv$sfx)]][i]
-                if(timeHyoidNow > 0) {
-                  finalData[[paste0("Hyoid_vel_mean", hv$sfx)]][i] <- finalData[[paste0("Hyoid_Max", hv$sfx)]][i] / timeHyoidNow
-                } else {
-                  skippedVids <- addSkip(skippedVids, fileNames2[i], hv$section, "FLAG: peak depression is at Tstart, so Hyoid_vel_mean was not calculated")
-                }
+            # Eye-based if the skull-frame version had any strike frames. Otherwise the triangle is tried after the loop
+            if(!is.na(finalData$Time_hyoid[i])) {
+              finalData$Hyoid_depth_source[i] <- "eye"
             }
           }
           
@@ -2175,31 +2312,48 @@ for(i in 1:nVids) {
           
           
                     
-                        # Time_hyoid
-                        # U_ram_mean
 
-                        # Hyoid_depression_t_mean
-
-                       
-                        # Hyoid_depression_tmax
-                        # Hyoid_vel_tmax
-                        # U_ram_tmax
-                        # U_ram_acc_tmax
-                        # Kinetic_Synchronization
+        ###########################
+        # Kinetic synchronization #
+        ###########################
+          # SD of the three peak times divided by strike duration. Low = more synchronized
+          # All three times are measured from Tstart (gape first passes 20% of its range): Time_hyoid, Ttpg, Time_cranial
+          # sd() divides by n-1. With 3 values that's always sqrt(3/2) times the population SD, so it doesn't change any comparison
+          # NA if any of the three times is missing
+          # Kinetic_Synchronization_backup uses Time_hyoid_backup (Nasal-Hyoid distance) instead of the skull-frame Time_hyoid
+            # Time_cranial needs the eye either way, so the backup only adds videos where the eye wasn't visible in the same frames as the hyoid
+        
+          # Kinetic_Synchronization
+          peakTimes <- cbind(finalData$Time_hyoid, finalData$Ttpg, finalData$Time_cranial)
+          finalData$Kinetic_Synchronization <- apply(peakTimes, 1, sd) / finalData$Ttotal
+        
+          # Kinetic_Synchronization_backup
+          peakTimesBackup <- cbind(finalData$Time_hyoid_backup, finalData$Ttpg, finalData$Time_cranial)
+          finalData$Kinetic_Synchronization_backup <- apply(peakTimesBackup, 1, sd) / finalData$Ttotal
+        
+        
+          # Order of the peaks (s). SD loses the order, so these keep it
+            # Positive = that peak came after peak gape
+          finalData$Lag_hyoid_gape   <- finalData$Time_hyoid - finalData$Ttpg
+          finalData$Lag_cranial_gape <- finalData$Time_cranial - finalData$Ttpg
+        
+        
+          # Checks
+            # How many videos have each version?
+          sum(!is.na(finalData$Kinetic_Synchronization))
+          sum(!is.na(finalData$Kinetic_Synchronization_backup))
+        
+            # Videos where both exist should be close. A low correlation means the two hyoid peak times disagree
+          cor(finalData$Kinetic_Synchronization, finalData$Kinetic_Synchronization_backup, use = "complete.obs")
+        
+            # Typical order of the peaks
+          summary(finalData$Lag_hyoid_gape)
+          summary(finalData$Lag_cranial_gape)
 
 
 
 
         # finalTimeSeriesData: x_mouth_t, Hyoid_depression_t
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2210,7 +2364,334 @@ for(i in 1:nVids) {
   
         
         
-        
+###################################################
+# Hyoid without the eye (triangle) and buccal volume #
+###################################################
+  # Runs after the loop because:
+    # The triangle needs the pooled retraction ratio (beta), which needs every eye-based video first
+    # Buccal volume needs hyoid depression and retraction from both eye-based and triangle videos
+  # Works from the saved time series. Frame numbers come from nFrames, startFrame and endFrame saved in the loop
+
+
+  ##### Pooled retraction-to-depression ratio (beta)
+    # Straight line through zero, Hyoid_retraction = beta * Hyoid_depression, fit on strike frames of eye-based videos
+    # Pooled on purpose, so fish with extreme retraction are underestimated rather than exaggerated
+    # Only videos whose depression passed the negative check (Hyoid_Max not NA)
+
+    betaH <- c()
+    betaR <- c()
+    betaPhase <- c()   # opening (before peak depression) or closing (after)
+
+    eyeRows <- which(finalData$Hyoid_depth_source == "eye" & !is.na(finalData$Hyoid_Max))
+
+    for(i in eyeRows) {
+      framesNow <- finalData$startFrame[i]:finalData$endFrame[i]
+      hNow <- finalTimeSeriesData$Hyoid_depression_t[1, framesNow, i]
+      rNow <- finalTimeSeriesData$Hyoid_retraction_t[1, framesNow, i]
+      keepNow <- !is.na(hNow) & !is.na(rNow)
+
+      peakFrameNow <- finalData$startFrame[i] + round(finalData$Time_hyoid[i] * finalData$frameRate[i])
+
+      betaH     <- c(betaH, hNow[keepNow])
+      betaR     <- c(betaR, rNow[keepNow])
+      betaPhase <- c(betaPhase, ifelse(framesNow[keepNow] <= peakFrameNow, "opening", "closing"))
+    }
+
+    if(length(betaH) < betaMinFrames) {
+      stop("Only ", length(betaH), " eye-based strike frames with both hyoid depression and retraction. Need at least betaMinFrames = ", betaMinFrames, " to fit the retraction ratio")
+    }
+
+    hyoidBeta  <- sum(betaR * betaH) / sum(betaH^2)
+    betaResid  <- betaR - hyoidBeta * betaH
+    betaR2     <- 1 - sum(betaResid^2) / sum((betaR - mean(betaR))^2)   # centered R2, a stricter test than the uncentered one for a line through zero
+
+
+  ##### Triangle depth for videos without the eye
+    # Tracked Nasal-Hyoid distance d satisfies d^2 = (a + beta*h)^2 + (D_head + h)^2
+      # h = depression, a = Nasal_eye_AP_length + Hyoid_rest_AP (resting AP distance from the nasal tip to the hyoid)
+    # Quadratic in h: (1 + beta^2) h^2 + 2(a*beta + D_head) h + (a^2 + D_head^2 - d^2) = 0
+      # The + root is the physical one (it's 0 at rest)
+    # Retraction = beta * h
+
+    quadA <- 1 + hyoidBeta^2
+
+    triRows <- which(is.na(finalData$Hyoid_depth_source) & !is.na(finalData$Tstart))
+
+    for(i in triRows) {
+
+      aNow     <- finalData$Nasal_eye_AP_length[i] + finalData$Hyoid_rest_AP[i]
+      dHeadNow <- finalData$D_head[i]
+
+      # Missing scan values aren't logged, since they aren't a landmarking problem
+      if(is.na(aNow) || is.na(dHeadNow)) {
+        next
+      }
+
+      nNow    <- finalData$nFrames[i]
+      timeNow <- (0:(nNow - 1)) / finalData$frameRate[i]
+      dNow    <- finalTimeSeriesData$Hyoid_nasal_dist_t[1, 1:nNow, i]
+
+      quadB <- 2 * (aNow * hyoidBeta + dHeadNow)
+      quadC <- aNow^2 + dHeadNow^2 - dNow^2
+      discNow <- quadB^2 - 4 * quadA * quadC
+
+      # No real solution means the tracked distance is shorter than the closest the hyoid can get to the nasal tip in this model
+      if(any(discNow < 0, na.rm = TRUE)) {
+        stop("Triangle has no solution (Nasal-Hyoid distance too short for the scan geometry) in: ", fileNames2[i])
+      }
+
+      hTri     <- (-quadB + sqrt(discNow)) / (2 * quadA)
+      depthTri <- dHeadNow + hTri
+
+      hyOut <- hyoidOutputs(depthTri, dHeadNow, timeNow, finalData$startFrame[i], finalData$endFrame[i], finalData$tmax[i], finalData$Tstart[i],
+                            lambdaRefDerived, spanRef, hyoidNegTolerance, "Hyoid and Nasal never both present")
+
+      # Save into the main hyoid columns
+      for(nm in names(hyoidColsMain)) {
+        finalData[[hyoidColsMain[[nm]]]][i] <- hyOut$values[[nm]]
+      }
+      if(!is.null(hyOut$vel_t)) {
+        finalTimeSeriesData$Hyoid_vel_t[1, 1:nNow, i] <- hyOut$vel_t
+      }
+      if(!is.null(hyOut$depression_t)) {
+        finalTimeSeriesData$Hyoid_depression_t[1, 1:nNow, i] <- hyOut$depression_t
+        finalTimeSeriesData$Hyoid_retraction_t[1, 1:nNow, i] <- hyoidBeta * hyOut$depression_t
+      }
+
+      for(msgNow in hyOut$log) {
+        skippedVids <- addSkip(skippedVids, fileNames2[i], "Hyoid triangle", msgNow)
+      }
+
+      finalData$Hyoid_depth_source[i] <- "triangle"
+    }
+
+
+  ##### Buccal volume
+    # Ceratohyal bar of fixed length: anterior end moves with the urohyal (retraction r, depression h), posterior end only moves laterally
+      # Ceratohyal_half_width(t) = sqrt(L^2 - (Ceratohyal_AP_rest - r)^2 - (Ceratohyal_DV_rest + h)^2)
+      # Ceratohyal_lateral_angle_hypaxial(t) = max(0, asin(half_width / L) - asin((W_head/2) / L))
+      # Ceratohyal_lateral_angle(t) = Neurocranium_rotation(t) + hypaxial angle
+      # Buccal_width_expansion(t) = max(0, 2L[sin(rest angle + lateral angle) - sin(rest angle)])
+    # Width can't drop below rest, so both angles are floored at 0. Frames where each floor applies are counted
+    # V_buccal(t) = frustum: front = A(t), back = pi(W_head + width expansion)/4 * (D_head + h), length = Neurocranium_length + Protrusion(t)
+    # Over Tstart-Tend only. Hyoid depression, retraction and neurocranium rotation are 0 at Tstart/Tend where missing, with gaps filled linearly
+      # Protrusion and gape area gaps are filled linearly, and missing ends take the nearest value
+    # No eye (triangle videos): neurocranium rotation is set to 0, recorded in V_buccal_neuroIncluded
+    # Only videos whose hyoid depression passed the negative check (Hyoid_Max not NA)
+
+    bvRows <- which(!is.na(finalData$Hyoid_Max) & !is.na(finalData$Hyoid_depth_source))
+
+    for(i in bvRows) {
+
+      cerL   <- finalData$Ceratohyal_length[i]
+      cerAP0 <- finalData$Ceratohyal_AP_rest[i]
+      cerDV0 <- finalData$Ceratohyal_DV_rest[i]
+      wHead  <- finalData$W_head[i]
+      dHead  <- finalData$D_head[i]
+      ncL    <- finalData$Neurocranium_length[i]
+
+      # Missing scan values aren't logged, since they aren't a landmarking problem
+      if(any(is.na(c(cerL, cerAP0, cerDV0, wHead, dHead, ncL)))) {
+        next
+      }
+
+      # Resting geometry must be possible. If not, a scan measurement is wrong for this fish
+      if(cerL^2 < cerAP0^2 + cerDV0^2) {
+        stop("Ceratohyal_length is shorter than its resting AP and DV span combined for ", finalData$Unique.ID[i], ". Check the ceratohyal scan measurements")
+      }
+      if(wHead/2 > cerL) {
+        stop("W_head/2 is longer than Ceratohyal_length for ", finalData$Unique.ID[i], ". Check the scan measurements")
+      }
+
+      cerPsi0 <- asin((wHead/2) / cerL)   # resting lateral angle (radians)
+
+      framesNow <- finalData$startFrame[i]:finalData$endFrame[i]
+      nStrike   <- length(framesNow)
+      timeNow   <- (framesNow - 1) / finalData$frameRate[i]
+
+
+      ##### Inputs over Tstart-Tend
+
+        # Hyoid depression and retraction: 0 at Tstart/Tend where missing, gaps filled linearly
+        hNow <- finalTimeSeriesData$Hyoid_depression_t[1, framesNow, i]
+        rNow <- finalTimeSeriesData$Hyoid_retraction_t[1, framesNow, i]
+
+        if(all(is.na(rNow))) {
+          next   # no Hyoid_rest_AP scan value
+        }
+
+        if(is.na(hNow[1]))       { hNow[1] <- 0 }
+        if(is.na(hNow[nStrike])) { hNow[nStrike] <- 0 }
+        if(is.na(rNow[1]))       { rNow[1] <- 0 }
+        if(is.na(rNow[nStrike])) { rNow[nStrike] <- 0 }
+        hNow <- na_interpolation(hNow, option = "linear")
+        rNow <- na_interpolation(rNow, option = "linear")
+
+        # Neurocranium rotation: same filling. Set to 0 if there's none (no eye)
+        neuroNow <- finalTimeSeriesData$Neurocranium_rotation_t[1, framesNow, i]
+
+        if(all(is.na(neuroNow))) {
+          neuroNow <- rep(0, nStrike)
+          finalData$V_buccal_neuroIncluded[i] <- FALSE
+        } else {
+          if(is.na(neuroNow[1]))       { neuroNow[1] <- 0 }
+          if(is.na(neuroNow[nStrike])) { neuroNow[nStrike] <- 0 }
+          neuroNow <- na_interpolation(neuroNow, option = "linear")
+          finalData$V_buccal_neuroIncluded[i] <- TRUE
+        }
+
+        # Protrusion and gape area: gaps filled linearly, missing ends take the nearest value
+        protNow <- finalTimeSeriesData$Protrusion_t[1, framesNow, i]
+        areaNow <- finalTimeSeriesData$A_t[1, framesNow, i]
+
+        if(sum(!is.na(protNow)) < 2) {
+          skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Fewer than 2 strike frames with protrusion: no buccal volume")
+          next
+        }
+        if(sum(!is.na(areaNow)) < 2) {
+          next   # no W_jaw scan value
+        }
+        protNow <- na_interpolation(protNow, option = "linear")
+        areaNow <- na_interpolation(areaNow, option = "linear")
+
+
+      ##### Ceratohyal angles and buccal width (radians, mm)
+
+        if(any(hNow / cerL > 1)) {
+          stop("Hyoid depression is longer than Ceratohyal_length (max ", round(max(hNow), 2), " mm) in: ", fileNames2[i], ". Check the D_head zero or Ceratohyal_length")
+        }
+
+        # Ceratohyal_rotation_angle_t (phenotype only, doesn't feed the width)
+        Ceratohyal_rotation_angle_t <- asin(hNow / cerL)
+
+        # Half-width. A negative square means the bar can't reach, the extreme case of narrowing, so it's floored below
+        halfWidthSq <- cerL^2 - (cerAP0 - rNow)^2 - (cerDV0 + hNow)^2
+        halfWidth   <- sqrt(pmax(halfWidthSq, 0))
+
+        # Hypaxial lateral angle, floored at 0 (posterior ends can't move medially past rest)
+        latHypNow <- asin(halfWidth / cerL) - cerPsi0
+        hypFloor  <- latHypNow < 0
+        Ceratohyal_lateral_angle_hypaxial_t <- pmax(latHypNow, 0)
+
+        # Effective half-width after the floor
+        Ceratohyal_half_width_t <- pmax(halfWidth, wHead/2)
+
+        # Total lateral angle
+        Ceratohyal_lateral_angle_t <- neuroNow + Ceratohyal_lateral_angle_hypaxial_t
+
+        # Buccal width expansion, floored at 0 (catches small negative neurocranium rotation)
+        widthExpNow <- 2 * cerL * (sin(cerPsi0 + Ceratohyal_lateral_angle_t) - sin(cerPsi0))
+        totalFloor  <- widthExpNow < 0
+        Buccal_width_expansion_t <- pmax(widthExpNow, 0)
+
+        finalData$Width_hypaxial_floor_frames[i] <- sum(hypFloor)
+        finalData$Width_total_floor_frames[i]    <- sum(totalFloor)
+
+
+      ##### V_buccal_t (mm^3)
+
+        areaBackNow <- pi * (wHead + Buccal_width_expansion_t) / 4 * (dHead + hNow)
+        V_buccal_t  <- ((ncL + protNow) / 3) * (areaNow + areaBackNow + sqrt(areaNow * areaBackNow))
+
+        finalData$V_buccal_Max[i]               <- max(V_buccal_t)
+        finalData$Buccal_width_expansion_Max[i] <- max(Buccal_width_expansion_t)
+
+
+      ##### Save time series (strike frames only)
+
+        finalTimeSeriesData$Ceratohyal_rotation_angle_t[1, framesNow, i]         <- Ceratohyal_rotation_angle_t
+        finalTimeSeriesData$Ceratohyal_lateral_angle_hypaxial_t[1, framesNow, i] <- Ceratohyal_lateral_angle_hypaxial_t
+        finalTimeSeriesData$Ceratohyal_lateral_angle_t[1, framesNow, i]          <- Ceratohyal_lateral_angle_t
+        finalTimeSeriesData$Ceratohyal_half_width_t[1, framesNow, i]             <- Ceratohyal_half_width_t
+        finalTimeSeriesData$Buccal_width_expansion_t[1, framesNow, i]            <- Buccal_width_expansion_t
+        finalTimeSeriesData$V_buccal_t[1, framesNow, i]                          <- V_buccal_t
+
+
+      ##### Spline on V_buccal: rate of change, values at tmax, predicted flow
+
+        if(nStrike >= 10) {
+
+          # Same lambda scaling as the other derived series
+          spanNow   <- nStrike - 1
+          lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
+
+          V_buccal_t_smooth <- smooth.spline(x = timeNow, y = V_buccal_t, lambda = lambdaNow)
+
+          # V_buccal_vel_t (mm^3/s)
+          V_buccal_vel_t <- predict(V_buccal_t_smooth, x = timeNow, deriv = 1)$y
+          finalTimeSeriesData$V_buccal_vel_t[1, framesNow, i] <- V_buccal_vel_t
+
+          # U_flow_ff_predicted_t (mm/s) = V_buccal_vel / A
+          U_flow_ff_predicted_t <- V_buccal_vel_t / areaNow
+          finalTimeSeriesData$U_flow_ff_predicted_t[1, framesNow, i] <- U_flow_ff_predicted_t
+
+          # U_flow_ff_predicted_mean (mm/s): all strike frames
+          finalData$U_flow_ff_predicted_mean[i] <- mean(U_flow_ff_predicted_t)
+
+          # U_flow_ff_predicted_mean_bigGape (mm/s): only frames with A >= uFlowAreaFrac * A_Max, so small gapes can't dominate
+          bigGapeFrames <- which(areaNow >= uFlowAreaFrac * finalData$A_Max[i])
+          if(length(bigGapeFrames) > 0) {
+            finalData$U_flow_ff_predicted_mean_bigGape[i] <- mean(U_flow_ff_predicted_t[bigGapeFrames])
+          }
+
+          # Values at tmax
+          if(!is.na(finalData$tmax[i])) {
+            if(finalData$tmax[i] >= timeNow[1] && finalData$tmax[i] <= timeNow[nStrike]) {
+
+              # V_buccal_vel_tmax (mm^3/s)
+              finalData$V_buccal_vel_tmax[i] <- predict(V_buccal_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+
+              # V_buccal_acc_tmax (mm^3/s^2)
+              finalData$V_buccal_acc_tmax[i] <- predict(V_buccal_t_smooth, x = finalData$tmax[i], deriv = 2)$y
+
+            } else {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Values at tmax not calculated: tmax outside Tstart-Tend")
+            }
+          }
+
+        } else {
+          skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Fewer than 10 strike frames: no buccal volume rates")
+        }
+    }
+
+
+  ##### Checks
+
+    # Retraction ratio fit
+  hyoidBeta
+  length(unique(eyeRows))          # eye-based videos used
+  length(betaH)                     # frames used
+  betaR2                            # how well a line through zero fits. Low = retraction isn't proportional to depression
+  tapply(betaResid, betaPhase, mean)   # mean residual on opening vs closing. A clear difference = different paths, so one beta is a compromise
+
+    # How many videos used each depth source
+  table(finalData$Hyoid_depth_source, useNA = "ifany")
+
+    # Scan consistency, one row per fish
+  scanRowsNow <- !duplicated(finalData$Unique.ID)
+      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. Should be close (they differ only by the ceratohyal stand-in for depth)
+  summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$D_head^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow])
+      # Resting ceratohyal half-width from the bar vs. W_head/2. Should be close to 0
+  summary(sqrt(finalData$Ceratohyal_length^2 - finalData$Ceratohyal_AP_rest^2 - finalData$Ceratohyal_DV_rest^2)[scanRowsNow] - finalData$W_head[scanRowsNow]/2)
+
+    # Eye-based vs. triangle videos: depression, width and volume should be in the same range
+  tapply(finalData$Hyoid_Max, finalData$Hyoid_depth_source, summary)
+  tapply(finalData$Buccal_width_expansion_Max, finalData$Hyoid_depth_source, summary)
+  tapply(finalData$V_buccal_Max, finalData$Hyoid_depth_source, summary)
+
+    # How often width had to be floored at 0, by depth source
+  strikeFramesN <- finalData$endFrame - finalData$startFrame + 1
+      # Share of videos with any floored frames
+  tapply(finalData$Width_hypaxial_floor_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE)
+  tapply(finalData$Width_total_floor_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE)
+      # Fraction of strike frames floored
+  tapply(finalData$Width_hypaxial_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary)
+  tapply(finalData$Width_total_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary)
+
+    # Are small gapes dominating U_flow_ff_predicted?   ### CHECK
+      # Ratio far from 1, or a weak correlation, means the frames near Tstart/Tend (small A) are driving the full-strike mean
+  summary(finalData$U_flow_ff_predicted_mean / finalData$U_flow_ff_predicted_mean_bigGape)
+  cor(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_bigGape, use = "complete.obs")     
         
         
         
@@ -2232,7 +2713,8 @@ for(i in 1:nVids) {
                 Mandible_depression_ROM = "Mandible_depression_Max",
                 Hyoid_ROM               = "Hyoid_Max",
                 Neurocranium_ROM        = "Neurocranium_Max",
-                Hyoid_ROM_backup        = "Hyoid_Max_backup")
+                Hyoid_excursion_ROM_backup = "Hyoid_excursion_Max_backup")
+
 
   for(romNow in names(romPairs)) {
 
@@ -2296,6 +2778,25 @@ for(i in 1:nVids) {
   
   
   
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+###########
+# Save    #
+###########
+  # finalData: one row per video. Analyze in a separate script
+  write.csv(finalData, 'PATH/TO/kinematicsAll_sleapOutput.csv', row.names = FALSE)   ### CHANGE path
+
+  # finalTimeSeriesData is a list of 3D arrays, so it can't go in a CSV. Save it as an R object and read it back with readRDS()
+  saveRDS(finalTimeSeriesData, 'PATH/TO/kinematicsTimeSeries.rds')   ### CHANGE path
 
 
 
