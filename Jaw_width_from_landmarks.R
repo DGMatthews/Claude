@@ -78,8 +78,11 @@ rm(list=ls())
 
 
     # Specimen name from a filename, e.g. "F2_1.2_22.02_Mandible.mrk.json" -> "F2_1.2_22.02"
+      # Some files start with an extra "ACxTRC_" (e.g. "ACxTRC_F2_1.2_13.01_Mandible.mrk.json"). It's removed,
+        # so both naming schemes give the same specimen name and a mandible file can pair with a premax file named the other way
     specimenFromFile <- function(fileName, boneName) {
-      sub(paste0("_", boneName, "(\\.mrk)?\\.json$"), "", fileName)
+      specimenNow <- sub(paste0("_", boneName, "(\\.mrk)?\\.json$"), "", fileName)
+      sub("^ACxTRC_", "", specimenNow)
     }
 
 
