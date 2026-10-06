@@ -276,9 +276,9 @@ print(h5ls(file=fileNames[1]))
     }
 
 
-    # One QC plot panel: a time series with Tstart/Tend (grey dotted) and tmax (red)
+    # One QC plot panel: a time series with Tstart/Tend (grey dotted), tmax = peak pressure (red) and tmaxVel = peak flow velocity (blue)
       # ySecond (optional) is drawn dashed, for a second version of the same variable
-    qcPanel <- function(timeNow, yMain, ySecond, main, ylab, Tstart, Tend, tmax) {
+    qcPanel <- function(timeNow, yMain, ySecond, main, ylab, Tstart, Tend, tmax, tmaxVel) {
 
       if(all(is.na(yMain)) && (is.null(ySecond) || all(is.na(ySecond)))) {
         plot.new()
@@ -298,6 +298,9 @@ print(h5ls(file=fileNames[1]))
       abline(v = strikeLines[!is.na(strikeLines)], lty = 3, col = "grey50")
       if(!is.na(tmax)) {
         abline(v = tmax, col = "red")
+      }
+      if(!is.na(tmaxVel)) {
+        abline(v = tmaxVel, col = "blue")
       }
     }
 
@@ -1981,7 +1984,7 @@ for(i in 1:nVids) {
 #############
 # QC plots  #
 #############
-  # One PNG per video, 8 panels. Grey dotted lines = Tstart and Tend, red line = tmax
+  # One PNG per video, 8 panels. Grey dotted lines = Tstart and Tend, red line = tmax (peak pressure), blue line = tmaxVel (peak flow velocity), both from PIV
   # Dashed second lines: camera-frame maxilla angle, body ram
   # Angles are shown in degrees for readability (stored in radians)
   # Hyoid panels show raw depth and distance (no resting zero in this version), so only their shape and timing matter
@@ -2004,30 +2007,31 @@ for(i in 1:nVids) {
       tStartNow <- finalData$Tstart[i]
       tEndNow   <- finalData$Tend[i]
       tmaxNow   <- finalData$tmax[i]
+      tmaxVelNow <- finalData$tmaxVel[i]
       tsNow     <- finalTimeSeriesData
 
       png(file.path(qcPlotFolder, paste0(fileNames2[i], ".png")), width = 1800, height = 850, res = 110)
       par(mfrow = c(2, 4), mar = c(4, 4, 2.5, 1), oma = c(0, 0, 2.5, 0))
 
       qcPanel(timeNow, tsNow$R_t[1, fNow, i], NULL,
-              "Gape radius", "mm", tStartNow, tEndNow, tmaxNow)
+              "Gape radius", "mm", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$Protrusion_t[1, fNow, i], NULL,
-              "Protrusion", "mm", tStartNow, tEndNow, tmaxNow)
+              "Protrusion", "mm", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$Mandible_tip_disp_t[1, fNow, i], NULL,
-              "Mandible tip displacement", "mm", tStartNow, tEndNow, tmaxNow)
+              "Mandible tip displacement", "mm", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$Neurocranium_rotation_t[1, fNow, i] * radToDeg, NULL,
-              "Neurocranium rotation", "degrees", tStartNow, tEndNow, tmaxNow)
+              "Neurocranium rotation", "degrees", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$Maxilla_ang_t[1, fNow, i] * radToDeg, tsNow$Maxilla_ang_cam_t[1, fNow, i] * radToDeg,
-              "Maxilla angle (dashed = camera frame)", "degrees", tStartNow, tEndNow, tmaxNow)
+              "Maxilla angle (dashed = camera frame)", "degrees", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$Hyoid_depth_eyeLine_t[1, fNow, i], NULL,
-              "Hyoid depth below Eye-Nasal line (raw)", "mm", tStartNow, tEndNow, tmaxNow)
+              "Hyoid depth below Eye-Nasal line (raw)", "mm", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$U_ram_t[1, fNow, i], tsNow$U_ram_body_t[1, fNow, i],
-              "Ram speed (dashed = body)", "mm/s", tStartNow, tEndNow, tmaxNow)
+              "Ram speed (dashed = body)", "mm/s", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
       qcPanel(timeNow, tsNow$Hyoid_nasal_dist_t[1, fNow, i], NULL,
-              "Nasal-Hyoid distance (raw)", "mm", tStartNow, tEndNow, tmaxNow)
+              "Nasal-Hyoid distance (raw)", "mm", tStartNow, tEndNow, tmaxNow, tmaxVelNow)
 
       nLogNow <- sum(skippedVids$vidName == fileNames2[i])
-      mtext(paste0(fileNames2[i], "     |     ", nLogNow, " entries in skippedVids"),
+      mtext(paste0(fileNames2[i], "     |     ", nLogNow, " entries in skippedVids     |     red = peak pressure, blue = peak velocity"),
             outer = TRUE, cex = 1.1)
 
       dev.off()
