@@ -256,6 +256,16 @@ print(h5ls(file=fileNames[1]))
         }
         
         
+    # Correlation for the checks. Returns NA (instead of an error that would stop the script) if fewer than 3 videos have both values
+    corCheck <- function(x, y) {
+      bothNow <- !is.na(x) & !is.na(y)
+      if(sum(bothNow) < 3) {
+        return(NA_real_)
+      }
+      cor(x[bothNow], y[bothNow])
+    }
+
+
     # Add a row to the skipped-analysis log
       # skippedLog = the current log (skippedVids), returns the log with the new row added
       # section = which part of the analysis was skipped, reason = why
@@ -2729,7 +2739,7 @@ for(i in 1:nVids) {
     # Are small gapes dominating U_flow_ff_predicted?   ### CHECK
       # Ratio far from 1, or a weak correlation, means the frames near Tstart/Tend (small A) are driving the full-strike mean
   print(summary(finalData$U_flow_ff_predicted_mean / finalData$U_flow_ff_predicted_mean_bigGape))
-  print(cor(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_bigGape, use = "complete.obs"))     
+  print(corCheck(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_bigGape))     
         
         
         
@@ -2784,7 +2794,7 @@ for(i in 1:nVids) {
   print(sum(finalData$Maxilla_ang_tmax > 0, na.rm=TRUE))
 
     # Measured vs. predicted maxilla angle. Should be positively correlated. If negative, oralOpenSign or the theta3 sign convention is flipped   ### CHECK
-  print(cor(finalData$Maxilla_ang_tmax, finalData$Maxilla_ang_predicted_tmax, use = "complete.obs"))
+  print(corCheck(finalData$Maxilla_ang_tmax, finalData$Maxilla_ang_predicted_tmax))
   
   
     # Skipped analyses: how many videos per section and reason
