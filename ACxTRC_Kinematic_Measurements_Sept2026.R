@@ -2370,15 +2370,6 @@ for(i in 1:nVids) {
             finalData$Mandible_ang_predicted_tmax[i] <- wrapAngle(finalData$Opercular_theta4_tmax[i] - finalData$Opercular_theta4_rest[i])
           }
           
-          
-          
-          
-          
-          
-                    
-
-
-
 
 
 
@@ -2389,6 +2380,15 @@ for(i in 1:nVids) {
 }
   
   
+
+
+
+
+
+
+
+
+
         
         
 ###################################################
@@ -2810,104 +2810,45 @@ for(i in 1:nVids) {
   
     
 ############################     CALCULATED VARIABLES      ############################
-
-
-###########################
-# Kinetic synchronization #
-###########################
-  # SD of the three peak times divided by strike duration. Low = more synchronized
-  # All three times are measured from Tstart (gape first passes 20% of its range): Time_hyoid, Ttpg, Time_cranial
-  # sd() divides by n-1. With 3 values that's always sqrt(3/2) times the population SD, so it doesn't change any comparison
-  # NA if any of the three times is missing
-  # Kinetic_Synchronization_backup uses Time_hyoid_backup (Nasal-Hyoid distance) instead of the skull-frame Time_hyoid
-    # Time_cranial needs the eye either way, so the backup only adds videos where the eye wasn't visible in the same frames as the hyoid
-
-  # Kinetic_Synchronization
-  peakTimes <- cbind(finalData$Time_hyoid, finalData$Ttpg, finalData$Time_cranial)
-  finalData$Kinetic_Synchronization <- apply(peakTimes, 1, sd) / finalData$Ttotal
-
-  # Kinetic_Synchronization_backup
-  peakTimesBackup <- cbind(finalData$Time_hyoid_backup, finalData$Ttpg, finalData$Time_cranial)
-  finalData$Kinetic_Synchronization_backup <- apply(peakTimesBackup, 1, sd) / finalData$Ttotal
-
-
-  # Order of the peaks (s). SD loses the order, so these keep it
-    # Positive = that peak came after peak gape
-  finalData$Lag_hyoid_gape   <- finalData$Time_hyoid - finalData$Ttpg
-  finalData$Lag_cranial_gape <- finalData$Time_cranial - finalData$Ttpg
-
-
-  # Checks
-    # How many videos have each version?
-  print(sum(!is.na(finalData$Kinetic_Synchronization)))
-  print(sum(!is.na(finalData$Kinetic_Synchronization_backup)))
-
-    # Videos where both exist should be close. A low correlation means the two hyoid peak times disagree
-  print(cor(finalData$Kinetic_Synchronization, finalData$Kinetic_Synchronization_backup, use = "complete.obs"))
-
-    # Typical order of the peaks
-  print(summary(finalData$Lag_hyoid_gape))
-  print(summary(finalData$Lag_cranial_gape))
-
-
-
-#############
-# QC plots  #
-#############
-  # One PNG per video, 8 panels. Grey dotted lines = Tstart and Tend, red line = tmax
-  # Dashed second lines: camera-frame maxilla angle, hyoid excursion backup, body ram
-  # Angles are shown in degrees for readability (stored in radians)
-  # The title shows the hyoid depth source and how many entries the video has in skippedVids
-
-  if(saveQCplots) {
-
-    dir.create(qcPlotFolder, showWarnings = FALSE, recursive = TRUE)
-    radToDeg <- 180 / pi
-
-    for(i in 1:nVids) {
-
-      nNow <- finalData$nFrames[i]
-      if(is.na(nNow)) {
-        next
-      }
-
-      timeNow   <- (0:(nNow - 1)) / finalData$frameRate[i]
-      fNow      <- 1:nNow
-      tStartNow <- finalData$Tstart[i]
-      tEndNow   <- finalData$Tend[i]
-      tmaxNow   <- finalData$tmax[i]
-      tsNow     <- finalTimeSeriesData
-
-      png(file.path(qcPlotFolder, paste0(fileNames2[i], ".png")), width = 1800, height = 850, res = 110)
-      par(mfrow = c(2, 4), mar = c(4, 4, 2.5, 1), oma = c(0, 0, 2.5, 0))
-
-      qcPanel(timeNow, tsNow$R_t[1, fNow, i], NULL,
-              "Gape radius", "mm", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$Protrusion_t[1, fNow, i], NULL,
-              "Protrusion", "mm", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$Mandible_ang_t[1, fNow, i] * radToDeg, NULL,
-              "Mandible angle", "degrees", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$Neurocranium_rotation_t[1, fNow, i] * radToDeg, NULL,
-              "Neurocranium rotation", "degrees", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$Maxilla_ang_t[1, fNow, i] * radToDeg, tsNow$Maxilla_ang_cam_t[1, fNow, i] * radToDeg,
-              "Maxilla angle (dashed = camera frame)", "degrees", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$Hyoid_depression_t[1, fNow, i], tsNow$Hyoid_excursion_t_backup[1, fNow, i],
-              "Hyoid depression (dashed = excursion)", "mm", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$U_ram_t[1, fNow, i], tsNow$U_ram_body_t[1, fNow, i],
-              "Ram speed (dashed = body)", "mm/s", tStartNow, tEndNow, tmaxNow)
-      qcPanel(timeNow, tsNow$V_buccal_t[1, fNow, i], NULL,
-              "Buccal volume", "mm^3", tStartNow, tEndNow, tmaxNow)
-
-      nLogNow <- sum(skippedVids$vidName == fileNames2[i])
-      mtext(paste0(fileNames2[i], "     |     hyoid: ", finalData$Hyoid_depth_source[i], "     |     ", nLogNow, " entries in skippedVids"),
-            outer = TRUE, cex = 1.1)
-
-      dev.off()
-    }
-
-    print(paste0("QC plots saved to: ", qcPlotFolder))
-  }
-
+  
+  
+  
+  ###########################
+  # Kinetic synchronization #
+  ###########################
+      # SD of the three peak times divided by strike duration. Low = more synchronized
+      # All three times are measured from Tstart (gape first passes 20% of its range): Time_hyoid, Ttpg, Time_cranial
+      # sd() divides by n-1. With 3 values that's always sqrt(3/2) times the population SD, so it doesn't change any comparison
+      # NA if any of the three times is missing
+      # Kinetic_Synchronization_backup uses Time_hyoid_backup (Nasal-Hyoid distance) instead of the skull-frame Time_hyoid
+        # Time_cranial needs the eye either way, so the backup only adds videos where the eye wasn't visible in the same frames as the hyoid
+    
+      # Kinetic_Synchronization
+      peakTimes <- cbind(finalData$Time_hyoid, finalData$Ttpg, finalData$Time_cranial)
+      finalData$Kinetic_Synchronization <- apply(peakTimes, 1, sd) / finalData$Ttotal
+    
+      # Kinetic_Synchronization_backup
+      peakTimesBackup <- cbind(finalData$Time_hyoid_backup, finalData$Ttpg, finalData$Time_cranial)
+      finalData$Kinetic_Synchronization_backup <- apply(peakTimesBackup, 1, sd) / finalData$Ttotal
+    
+    
+      # Order of the peaks (s). SD loses the order, so these keep it
+        # Positive = that peak came after peak gape
+      finalData$Lag_hyoid_gape   <- finalData$Time_hyoid - finalData$Ttpg
+      finalData$Lag_cranial_gape <- finalData$Time_cranial - finalData$Ttpg
+    
+    
+      # Checks
+        # How many videos have each version?
+      sum(!is.na(finalData$Kinetic_Synchronization))
+      sum(!is.na(finalData$Kinetic_Synchronization_backup))
+    
+        # Videos where both exist should be close. A low correlation means the two hyoid peak times disagree
+      cor(finalData$Kinetic_Synchronization, finalData$Kinetic_Synchronization_backup, use = "complete.obs")
+    
+        # Typical order of the peaks
+      summary(finalData$Lag_hyoid_gape)
+      summary(finalData$Lag_cranial_gape)
   
   
   
