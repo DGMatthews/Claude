@@ -220,6 +220,14 @@ h5ls(file=fileNames[1])
           }
           stop("output must be 'theta3' or 'theta4'")
         }
+        
+        
+    # Add a row to the skipped-analysis log
+      # skippedLog = the current log (skippedVids), returns the log with the new row added
+      # section = which part of the analysis was skipped, reason = why
+    addSkip <- function(skippedLog, vidName, section, reason) {
+      rbind(skippedLog, data.frame(vidName = vidName, section = section, reason = reason))
+    }
     
 
 
@@ -314,6 +322,14 @@ finalData <- data.frame(vidName = fileNames2,
                         Neurocranium_linear_vel_mean = rep(NA_real_, nVids),
                         Neurocranium_eyeNasal_stretch_max = rep(NA_real_, nVids),
                         Neurocranium_eyeQC_flag = rep(NA, nVids),
+                        Mandible_tip_disp_ROM = rep(NA_real_, nVids),
+                        Mandible_depression_ROM = rep(NA_real_, nVids),
+                        Maxilla_Max = rep(NA_real_, nVids),
+                        Maxilla_cam_Max = rep(NA_real_, nVids),
+                        Maxilla_ang_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_angular_vel_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_tip_disp_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_linear_vel_cam_tmax = rep(NA_real_, nVids),
                         Cov_R_Uram = rep(NA_real_, nVids),
                         Cov_R_Uflowff = rep(NA_real_, nVids),
                         Cov_R_Uflowefmeas = rep(NA_real_, nVids)
@@ -366,14 +382,17 @@ finalTimeSeriesData <- list(R_t = array(data=NA, dim = c(1,longestVid, nVids), d
                             Maxilla_tip_disp_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_tip_disp_t", NULL, fileNames2)),
                             Neurocranium_rotation_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_rotation_t", NULL, fileNames2)),
                             Neurocranium_angular_vel_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_angular_vel_t", NULL, fileNames2)),
-                            Neurocranium_tip_disp_eye_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_tip_disp_eye_t", NULL, fileNames2))
+                            Neurocranium_tip_disp_eye_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Neurocranium_tip_disp_eye_t", NULL, fileNames2)),
+                            Maxilla_ang_cam_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_ang_cam_t", NULL, fileNames2)),
+                            Maxilla_tip_disp_cam_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Maxilla_tip_disp_cam_t", NULL, fileNames2))
                             )
 
 
 
 
-#Make a list of videos where an analysis was skipped so I can check the landmarking quality
-skippedVids <- vector()
+#Make a log of analyses that were skipped (or flagged) for each video, so I can check the landmarking quality
+  # One row per skipped section per video
+skippedVids <- data.frame(vidName = character(), section = character(), reason = character())
 
 
 
@@ -1038,6 +1057,21 @@ for(i in 1:nVids) {
         
         
         
+        ##### Record skipped analyses: Gape and timing
+          # Strikes with no Tstart are only logged here, not again in every later section
+
+          if(is.na(finalData$Tstart[i])) {
+            if(all(is.na(R_t))) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Gape", "UJ and LJ never both present")
+            } else {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Gape", "No strike start found from gape threshold")
+            }
+          } else if(!is.na(finalData$tmax[i]) && is.na(finalData$R_tmax[i])) {
+            skippedVids <- addSkip(skippedVids, fileNames2[i], "Gape", "Values at tmax not calculated: tmax outside tracked frames or < 10 frames")
+          }
+        
+        
+        
         
         ##############  
         # Protrusion #
@@ -1099,7 +1133,13 @@ for(i in 1:nVids) {
           }
         
         
-        
+        if(!is.na(finalData$Tstart[i])) {
+            if(is.na(firstProtFrame)) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Protrusion", "UJ and Nasal never both present")
+            } else if(timeSeriesNow[firstProtFrame] > finalData$Tstart[i]) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Protrusion", "No rest frame: first frame with UJ and Nasal is after Tstart")
+            } else if(!is.na(finalData$tmax[i]) && is.na(finalData$Protrusion_tmax[i])) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Protrusion", "Values at tmax not calculated: tmax outside tracked frames or < 10 frames")
           
           
 
@@ -1130,6 +1170,15 @@ for(i in 1:nVids) {
                 #save it to the final array
               finalTimeSeriesData$Mandible_tip_disp_t[1, 1:length(Mandible_tip_disp_t), i] <- Mandible_tip_disp_t
               finalData$Mandible_tip_dist_rest[i] <- nasalLJ_t[firstMandFrame]
+              
+              
+              
+            ##### Mandible_tip_disp_Max (largest change in Nasal-LJ distance from rest during the strike, mm)
+                # No scan values needed, so this exists even for fish without scans
+  
+                if(any(!is.na(Mandible_tip_disp_t[startPos:endPos]))) {
+                  finalData$Mandible_tip_disp_Max[i] <- max(Mandible_tip_disp_t[startPos:endPos], na.rm=TRUE)
+                }
 
             
 
@@ -1193,6 +1242,16 @@ for(i in 1:nVids) {
 
                   # Mandible_Max (largest jaw rotation during the strike, radians)
                     finalData$Mandible_Max[i] <- max(Mandible_ang_t[startPos:endPos], na.rm=TRUE)
+                    
+                    
+                  # Mandible_depression_Max (mm)
+                    # Depression = Mandible_length * sin(angle) keeps increasing with angle up to 90 degrees, so its max is at Mandible_Max
+                    # Calculated from Mandible_Max so it's an exact identity, not a separate max search
+                    # A jaw opening past 90 degrees is impossible, so it means bad tracking, scan values or calibration
+                    if(finalData$Mandible_Max[i] > pi/2) {
+                      stop("Mandible_Max is over 90 degrees (", round(finalData$Mandible_Max[i]*180/pi, 1), " deg) in: ", fileNames2[i])
+                    }
+                    finalData$Mandible_depression_Max[i] <- jawR * sin(finalData$Mandible_Max[i])
 
                   
                 }
@@ -1230,6 +1289,33 @@ for(i in 1:nVids) {
           
           
           
+         ##### Record skipped analyses: Mandible
+
+          if(!is.na(finalData$Tstart[i])) {
+            if(is.na(firstMandFrame)) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", "LJ and Nasal never both present")
+            } else if(timeSeriesNow[firstMandFrame] > finalData$Tstart[i]) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", "No rest frame: first frame with LJ and Nasal is after Tstart")
+            } else {
+
+              # Tip displacement (no scan values needed)
+              if(!is.na(finalData$tmax[i]) && is.na(finalData$Mandible_tip_disp_tmax[i])) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", "Tip displacement at tmax not calculated: tmax outside tracked frames or < 10 frames")
+              }
+
+              # Angle (only checked when scan values exist, since missing scans aren't a landmarking problem)
+              if(!is.na(finalData$Nasal_joint_length[i]) && !is.na(finalData$Mandible_length[i])) {
+                if(!is.na(finalData$tmax[i]) && is.na(finalData$Mandible_ang_tmax[i])) {
+                  skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", "Angle at tmax not calculated: tmax outside tracked frames or < 10 frames")
+                }
+
+                # Flag (not a skip): frames where the triangle was impossible and had to be clamped
+                if(!is.na(finalData$mandClampFrames[i]) && finalData$mandClampFrames[i] > 0) {
+                  skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", paste0("FLAG: ", finalData$mandClampFrames[i], " frames clamped in the mandible triangle"))
+                }
+              }
+            }
+          }
           
           
           
@@ -1434,7 +1520,218 @@ for(i in 1:nVids) {
           
           
           
+        ##### Record skipped analyses: Neurocranium
+
+          if(!is.na(finalData$Tstart[i])) {
+            if(is.na(firstNeuroFrame)) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Neurocranium", "Eye and Nasal never both present")
+            } else if(timeSeriesNow[firstNeuroFrame] > finalData$Tstart[i]) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Neurocranium", "No rest frame: first frame with Eye and Nasal is after Tstart")
+            } else {
+
+              if(sum(!is.na(Neurocranium_rotation_t)) < 10) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Neurocranium", "Fewer than 10 frames with Eye and Nasal: no velocities or values at tmax")
+              } else if(!is.na(finalData$tmax[i]) && is.na(finalData$Neurocranium_rotation_tmax[i])) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Neurocranium", "Values at tmax not calculated: tmax outside tracked frames")
+              }
+
+              # Flag (not a skip): eye slid relative to the nasal more than the QC cutoff
+              if(isTRUE(finalData$Neurocranium_eyeQC_flag[i])) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Neurocranium", paste0("FLAG: Eye-Nasal stretch ", round(finalData$Neurocranium_eyeNasal_stretch_max[i], 3), " is above the QC cutoff"))
+              }
+            }
+          }
           
+          
+          
+          
+        ###########
+        # Maxilla #
+        ###########
+
+        # Maxilla rotation from the angle of the Nasal -> VentMax vector
+          # The nasal tip is about where the dorsal end of the maxilla meets the nasal, so this vector approximates the maxilla (oral 4-bar coupler)
+          # Signed angle from rest using atan2(cross, dot), multiplied by strikeDirection
+            # Positive = ventral tip swinging anteriorly (counterclockwise for a fish facing right, clockwise for facing left)
+            # This is the same rotation direction as cranial elevation, so Neurocranium_rotation_t can be subtracted directly
+        # Two versions of each variable
+          # Skull frame (Maxilla_ang_t, Maxilla_tip_disp_t): neurocranium rotation removed. Comparable to Maxilla_ang_predicted_tmax. Needs the eye
+          # Camera frame (Maxilla_ang_cam_t, Maxilla_tip_disp_cam_t): includes neurocranium rotation. No eye needed, so available in more videos
+        # Variables
+          # Maxilla_ang_cam_t:       change in Nasal->VentMax angle from rest, camera frame (radians)
+          # Maxilla_ang_t:           Maxilla_ang_cam_t - Neurocranium_rotation_t (radians)
+          # Maxilla_tip_disp_cam_t:  distance VentMax has moved from its resting position relative to the nasal tip, camera frame (mm)
+          # Maxilla_tip_disp_t:      same, after rotating out the neurocranium rotation (mm)
+            # Displacements are distances, so they are always >= 0, and tracking noise biases them slightly positive near rest
+
+          dfTemp <- data.frame(xNasal=xNasal, yNasal=yNasal, xMaxilla=xMaxilla, yMaxilla=yMaxilla)
+          firstMaxFrame <- which(complete.cases(dfTemp))[1]
+
+
+          if(!is.na(firstMaxFrame) && !is.na(finalData$Tstart[i]) && (timeSeriesNow[firstMaxFrame])<=finalData$Tstart[i]) {
+
+            ##### Nasal -> VentMax vector in each frame
+              # y is flipped so up is positive (image y points down)
+
+              vxMax <- xMaxilla - xNasal
+              vyMax <- -(yMaxilla - yNasal)
+
+              vxMaxRest <- vxMax[firstMaxFrame]
+              vyMaxRest <- vyMax[firstMaxFrame]
+
+              # VentMax must be below the nasal tip at rest. If not, the landmarks are swapped or misplaced
+              if(vyMaxRest >= 0) {
+                stop("VentMax is not ventral to the nasal tip at rest (frame ", firstMaxFrame, "). Check Nasal/VentMax landmarks in: ", fileNames2[i])
+              }
+
+
+            ##### Maxilla_ang_cam_t (radians)
+
+              Maxilla_ang_cam_t <- finalData$strikeDirection[i] * atan2(vxMaxRest*vyMax - vyMaxRest*vxMax,
+                                                                        vxMaxRest*vxMax + vyMaxRest*vyMax)
+                #save it to the final array
+              finalTimeSeriesData$Maxilla_ang_cam_t[1, 1:length(Maxilla_ang_cam_t), i] <- Maxilla_ang_cam_t
+
+
+            ##### Maxilla_tip_disp_cam_t (mm)
+
+              Maxilla_tip_disp_cam_t <- sqrt((vxMax - vxMaxRest)^2 + (vyMax - vyMaxRest)^2)
+                #save it to the final array
+              finalTimeSeriesData$Maxilla_tip_disp_cam_t[1, 1:length(Maxilla_tip_disp_cam_t), i] <- Maxilla_tip_disp_cam_t
+
+
+            ##### Maxilla_cam_Max (largest camera-frame maxilla rotation during the strike, radians)
+
+              if(any(!is.na(Maxilla_ang_cam_t[startPos:endPos]))) {
+                finalData$Maxilla_cam_Max[i] <- max(Maxilla_ang_cam_t[startPos:endPos], na.rm=TRUE)
+              }
+
+
+            ##### Camera-frame values at tmax
+
+              if(!is.na(finalData$tmax[i])) {
+
+                  goodFrames_maxCam <- which(!is.na(Maxilla_ang_cam_t))
+
+                  #Check if there are enough frames for fitting, and that tmax is within the frames that have maxilla data
+                  if(length(goodFrames_maxCam) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_maxCam)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_maxCam)]) {
+
+                      # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
+                      spanNow   <- max(goodFrames_maxCam) - min(goodFrames_maxCam)
+                      lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
+
+                      Maxilla_ang_cam_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_maxCam], y = Maxilla_ang_cam_t[goodFrames_maxCam], lambda = lambdaNow)
+
+                      # Maxilla_ang_cam_tmax (radians)
+                      finalData$Maxilla_ang_cam_tmax[i] <- predict(Maxilla_ang_cam_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+
+                      # Maxilla_angular_vel_cam_tmax (radians/s)
+                      finalData$Maxilla_angular_vel_cam_tmax[i] <- predict(Maxilla_ang_cam_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+
+
+                      Maxilla_tip_disp_cam_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_maxCam], y = Maxilla_tip_disp_cam_t[goodFrames_maxCam], lambda = lambdaNow)
+
+                      # Maxilla_tip_disp_cam_tmax (mm)
+                      finalData$Maxilla_tip_disp_cam_tmax[i] <- predict(Maxilla_tip_disp_cam_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+
+                      # Maxilla_linear_vel_cam_tmax (mm/s)
+                      finalData$Maxilla_linear_vel_cam_tmax[i] <- predict(Maxilla_tip_disp_cam_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                  }
+              }
+
+
+            ##### Skull-frame versions (need Neurocranium_rotation_t, which needs the eye)
+              # Neurocranium_rotation_t only exists if the neurocranium section ran for THIS video (the loop reset deletes it otherwise)
+
+              if(exists("Neurocranium_rotation_t", inherits = FALSE)) {
+
+                ##### Maxilla_ang_t (radians)
+
+                  Maxilla_ang_t <- Maxilla_ang_cam_t - Neurocranium_rotation_t
+                    #save it to the final array
+                  finalTimeSeriesData$Maxilla_ang_t[1, 1:length(Maxilla_ang_t), i] <- Maxilla_ang_t
+
+
+                ##### Maxilla_tip_disp_t (mm)
+                  # Rotate the Nasal -> VentMax vector back by the skull's rotation, so cranial elevation doesn't count as maxilla motion
+                  # Skull rotation in camera coordinates (counterclockwise positive) is strikeDirection * Neurocranium_rotation_t
+                  # The rest vector needs no rotation, because the skull is at rest in the rest frame
+
+                  skullRot <- finalData$strikeDirection[i] * Neurocranium_rotation_t
+
+                  vxMaxSkull <-  vxMax*cos(skullRot) + vyMax*sin(skullRot)
+                  vyMaxSkull <- -vxMax*sin(skullRot) + vyMax*cos(skullRot)
+
+                  Maxilla_tip_disp_t <- sqrt((vxMaxSkull - vxMaxRest)^2 + (vyMaxSkull - vyMaxRest)^2)
+                    #save it to the final array
+                  finalTimeSeriesData$Maxilla_tip_disp_t[1, 1:length(Maxilla_tip_disp_t), i] <- Maxilla_tip_disp_t
+
+
+                ##### Maxilla_Max (largest skull-frame maxilla rotation during the strike, radians)
+
+                  if(any(!is.na(Maxilla_ang_t[startPos:endPos]))) {
+                    finalData$Maxilla_Max[i] <- max(Maxilla_ang_t[startPos:endPos], na.rm=TRUE)
+                  }
+
+
+                ##### Skull-frame values at tmax
+
+                  if(!is.na(finalData$tmax[i])) {
+
+                      goodFrames_max <- which(!is.na(Maxilla_ang_t))
+
+                      #Check if there are enough frames for fitting, and that tmax is within the frames that have maxilla and eye data
+                      if(length(goodFrames_max) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_max)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_max)]) {
+
+                          # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
+                          spanNow   <- max(goodFrames_max) - min(goodFrames_max)
+                          lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
+
+                          Maxilla_ang_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_max], y = Maxilla_ang_t[goodFrames_max], lambda = lambdaNow)
+
+                          # Maxilla_ang_tmax (radians)
+                          finalData$Maxilla_ang_tmax[i] <- predict(Maxilla_ang_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+
+                          # Maxilla_angular_vel_tmax (radians/s)
+                          finalData$Maxilla_angular_vel_tmax[i] <- predict(Maxilla_ang_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+
+
+                          Maxilla_tip_disp_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_max], y = Maxilla_tip_disp_t[goodFrames_max], lambda = lambdaNow)
+
+                          # Maxilla_tip_disp_tmax (mm)
+                          finalData$Maxilla_tip_disp_tmax[i] <- predict(Maxilla_tip_disp_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+
+                          # Maxilla_linear_vel_tmax (mm/s)
+                          finalData$Maxilla_linear_vel_tmax[i] <- predict(Maxilla_tip_disp_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                      }
+                  }
+              }
+          } 
+          
+          
+          
+        ##### Record skipped analyses: Maxilla
+
+          if(!is.na(finalData$Tstart[i])) {
+            if(is.na(firstMaxFrame)) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Maxilla", "VentMax and Nasal never both present")
+            } else if(timeSeriesNow[firstMaxFrame] > finalData$Tstart[i]) {
+              skippedVids <- addSkip(skippedVids, fileNames2[i], "Maxilla", "No rest frame: first frame with VentMax and Nasal is after Tstart")
+            } else {
+
+              # Camera frame
+              if(!is.na(finalData$tmax[i]) && is.na(finalData$Maxilla_ang_cam_tmax[i])) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Maxilla", "Camera-frame values at tmax not calculated: tmax outside tracked frames or < 10 frames")
+              }
+
+              # Skull frame (needs the neurocranium rotation, so needs the eye)
+              if(!exists("Maxilla_ang_t", inherits = FALSE)) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Maxilla", "Skull-frame maxilla skipped: no neurocranium rotation (eye missing)")
+              } else if(!is.na(finalData$tmax[i]) && is.na(finalData$Maxilla_ang_tmax[i])) {
+                skippedVids <- addSkip(skippedVids, fileNames2[i], "Maxilla", "Skull-frame values at tmax not calculated: tmax outside frames with eye and maxilla, or < 10 frames")
+              }
+            }
+          }
           
           
           
@@ -1506,673 +1803,90 @@ for(i in 1:nVids) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        #Run through each frame and find the gape (distance from upper to lower jaw), save the max value and time of max
-        tempVect <- rep(NA, length(dataNow[,1,1,1]))
-        for (k in 1:length(dataNow[,1,1,1])) {
-          xUJnow <- dataNow[k,1,1,1]
-          yUJnow <- dataNow[k,1,2,1]
-
-          xLJnow <- dataNow[k,2,1,1]
-          yLJnow <- dataNow[k,2,2,1]
-
-          gapeNowpix <- sqrt((xUJnow-xLJnow)^2+(yUJnow-yLJnow)^2)
-
-          gapeNow <- gapeNowpix/finalData$cal_pix.mm[i]
-
-          if(is.na(gapeNow)==FALSE) {
-            if(gapeNow>=0) {
-              tempVect[k] <- gapeNow
-            }
-          }
-        }
-
-
-        #This runs a polynomial fit on gape, then saves out the max gape from the fitted values
-
-        if (sum(!is.na(tempVect))>10) {
-
-          gapeNow <- na.omit(tempVect)
-          framesNow <- seq(from=1, to=longestVid, by=1)[which(!is.na(tempVect))]
-
-
-          #Create the first polynomial fit, and then get the positions that this line represents
-          polyFit <- lm(gapeNow ~ poly(framesNow, 6,raw = TRUE))
-          errorFitLine <- predict(polyFit)
-
-          #plot(gapeNow~framesNow)
-          #lines(errorFitLine~framesNow)
-
-          #Save the polynomial fit data to gapeDF
-          for(b in 1:length(errorFitLine)){
-            gapeDF[framesNow[b],1,i] <- errorFitLine[b]
-          }
-
-          timeMaxGape <- which(gapeDF[,1,i]==max(gapeDF[,1,i], na.rm = TRUE))
-
-          #Save the max best fit gape
-          finalData$maxGape[i] <- max(gapeDF[,1,i], na.rm=TRUE)
-          finalData$timeMaxGape[i] <- timeMaxGape
-
-
-          #Now find the gape velocity
-          #Only do this if the maximum gape falls outside the first 10 frames in the video
-          if (timeMaxGape>9){
-            #Make an expression to represent the best fit polynomial from lm()
-            gapeBestFit <- makeLMintoFunction(pc = polyFit$coefficients, TRUE)
-
-            # Find the derivative of the best fit polynomial
-            gapeDeriv <- D(gapeBestFit, name = "x")
-
-            #Find max gape velocity from frame 5 until the max gape is reached
-            gapeVelocityNow <- eval(gapeDeriv, envir= list(x=2:timeMaxGape))
-            #Divide frame rate calibration by 1000 so it's in units of mm/milliseconds
-            finalData$gapeVel[i] <- max(gapeVelocityNow)*(finalData$frameRate[i]/1000)
-
-            #Plot the gape velocity
-            #plot(gapeVelocityNow)
-
-          }
-        } else {
-          finalData$maxGape[i] <- NA
-          finalData$timeMaxGape[i] <- NA
-          finalData$gapeVel[i] <- NA
-          skippedVids <- c(skippedVids,i)
-          print(paste('Skipped video (gape): ', i))
-        }
-
-
-        ##############
-        # Protrusion #
-
-        #Run through each frame and find the protrusion (distance from nasal bone to upper jaw), save the max value and time of max
-        tempVect <- rep(NA, length(dataNow[,1,1,1]))
-        for (k in 1:length(dataNow[,1,1,1])) {
-          xUJnow <- dataNow[k,1,1,1]
-          yUJnow <- dataNow[k,1,2,1]
-
-          xNasalnow <- dataNow[k,3,1,1]
-          yNasalnow <- dataNow[k,3,2,1]
-
-          protNowpix <- sqrt((xUJnow-xNasalnow)^2+(yUJnow-yNasalnow)^2)
-
-          protNow <- protNowpix/finalData$cal_pix.mm[i]
-
-          if(is.na(protNow)==FALSE) {
-            if(protNow>=0) {
-              tempVect[k] <- protNow
-            }
-          }
-        }
-
-
-        #This runs a polynomial fit on protrusion, then saves out the max protrusion from the fitted values
-
-        if (sum(!is.na(tempVect))>10) {
-
-          protNow <- na.omit(tempVect)
-          framesNow <- seq(from=1, to=longestVid, by=1)[which(!is.na(tempVect))]
-
-
-          #Create the first polynomial fit, and then get the positions that this line represents
-          polyFit <- lm(protNow ~ poly(framesNow, 6,raw = TRUE))
-          errorFitLine <- predict(polyFit)
-
-          #plot(protNow~framesNow)
-          #lines(errorFitLine~framesNow)
-
-          #Save the polynomial fit data to protDF
-          for(b in 1:length(errorFitLine)){
-            protDF[framesNow[b],1,i] <- errorFitLine[b]
-          }
-
-          timeMaxprot <- which(protDF[,1,i]==max(protDF[,1,i], na.rm = TRUE))
-
-          #Save the max best fit protrusion
-          finalData$maxProt[i] <- max(protDF[,1,i], na.rm=TRUE)
-          finalData$timeMaxProt[i] <- timeMaxprot
-
-
-          #Now find the protrusion velocity
-          #Only do this if the maximum protrusion falls outside the first 10 frames in the video
-          if (timeMaxprot>9){
-            #Make an expression to represent the best fit polynomial from lm()
-            protBestFit <- makeLMintoFunction(pc = polyFit$coefficients, TRUE)
-
-            # Find the derivative of the best fit polynomial
-            protDeriv <- D(protBestFit, name = "x")
-
-            #Find max protrusion velocity from frame 5 until the max protrusion is reached
-            protVelocityNow <- eval(protDeriv, envir= list(x=2:timeMaxprot))
-            #Divide frame rate calibration by 1000 so it's in units of mm/milliseconds
-            finalData$protVel[i] <- max(protVelocityNow)*(finalData$frameRate[i]/1000)
-
-            ##plot the protrusion velocity
-            #plot(protVelocityNow)
-
-
-          }
-        } else {
-          finalData$maxProt[i] <- NA
-          finalData$timeMaxProt[i] <- NA
-          finalData$protVel[i] <- NA
-          skippedVids <- c(skippedVids,i)
-          print(paste('Skipped video (protrusion): ', i))
-        }
-
-
-
-
-
-
-
-
-        #########
-        # Hyoid #
-        #Run through each frame and find the hyoid depression (distance from the eye to the hyoid), save the max value and time of max
-        tempVect <- rep(NA, length(dataNow[,1,1,1]))
-        for (k in 1:length(dataNow[,1,1,1])) {
-          xEyenow <- dataNow[k,5,1,1]
-          yEyenow <- dataNow[k,5,2,1]
-
-          xHyoidnow <- dataNow[k,6,1,1]
-          yHyoidnow <- dataNow[k,6,2,1]
-
-          hyoidNowpix <- sqrt((xEyenow-xHyoidnow)^2+(yEyenow-yHyoidnow)^2)
-
-          hyoidNow <- hyoidNowpix/finalData$cal_pix.mm[i]
-
-          if(is.na(hyoidNow)==FALSE) {
-            if(hyoidNow>=0) {
-              tempVect[k] <- hyoidNow
-            }
-          }
-        }
-
-
-        #This runs a polynomial fit on hyoid depression, then saves out the max hyoid depression from the fitted values
-
-        if (sum(!is.na(tempVect))>10) {
-
-          hyoidNow <- na.omit(tempVect)
-          framesNow <- seq(from=1, to=longestVid, by=1)[which(!is.na(tempVect))]
-
-
-          #Create the first polynomial fit, and then get the positions that this line represents
-          polyFit <- lm(hyoidNow ~ poly(framesNow, 6,raw = TRUE))
-          errorFitLine <- predict(polyFit)
-
-          #plot(hyoidNow~framesNow)
-          #lines(errorFitLine~framesNow)
-
-          #Save the polynomial fit data to hyoidDF
-          for(b in 1:length(errorFitLine)){
-            hyoidDF[framesNow[b],1,i] <- errorFitLine[b]
-          }
-
-          timeMaxHyoid <- which(hyoidDF[,1,i]==max(hyoidDF[,1,i], na.rm = TRUE))
-
-          #Save the max best fit hyoid depression
-          finalData$maxHyoidDep[i] <- max(hyoidDF[,1,i], na.rm=TRUE)
-          finalData$timeMaxHyoidDep[i] <- timeMaxHyoid
-
-
-          #Now find the hyoid depression velocity
-          #Only do this if the maximum hyoid depression falls outside the first 10 frames in the video
-          if (timeMaxHyoid>9){
-            #Make an expression to represent the best fit polynomial from lm()
-            hyoidBestFit <- makeLMintoFunction(pc = polyFit$coefficients, TRUE)
-
-            # Find the derivative of the best fit polynomial
-            hyoidDeriv <- D(hyoidBestFit, name = "x")
-
-            #Find max hyoid depression velocity from frame 5 until the max hyoid depression is reached
-            hyoidVelocityNow <- eval(hyoidDeriv, envir= list(x=2:timeMaxHyoid))
-            #Divide frame rate calibration by 1000 so it's in units of mm/milliseconds
-            finalData$hyoidVel[i] <- max(hyoidVelocityNow)*(finalData$frameRate[i]/1000)
-
-            ##plot the hyoid depression velocity
-            #plot(hyoidVelocityNow)
-
-          }
-        } else {
-          finalData$maxHyoidDep[i] <- NA
-          finalData$timeMaxHyoidDep[i] <- NA
-          finalData$hyoidVel[i] <- NA
-          skippedVids <- c(skippedVids,i)
-          print(paste('Skipped video (hyoid): ', i))
-        }
-
-
-
-
-
-
-
-        #####################
-        # Cranial elevation #
-
-        # Not sure how to do this
-
-
-        #maxElevation
-        #timeMaxElevation
-        #elevationVel
-
-
-
-
-
-
-
-
-
-        #####################
-        # Maxilla rotation #
-
-
-        xNasalInit <- dataNow[1,3,1,1]
-        yNasalInit <- dataNow[1,3,2,1]
-
-        xmaxillaInit <- dataNow[1,4,1,1]
-        ymaxillaInit <- dataNow[1,4,2,1]
-
-        maxillaVectInit <- c(xNasalInit,yNasalInit)-c(xmaxillaInit,ymaxillaInit)
-
-        lengthMaxillaVectInit <- sqrt(maxillaVectInit[1]^2+maxillaVectInit[2]^2)
-
-        if (!is.na(lengthMaxillaVectInit)) {
-
-          #Run through each frame and find the maxilla rotation (difference from first frame), save the max value and time of max
-          tempVect <- rep(NA, length(dataNow[,1,1,1]))
-
-          for (k in 1:length(dataNow[,1,1,1])) {
-            xNasalnow <- dataNow[k,3,1,1]
-            yNasalnow <- dataNow[k,3,2,1]
-
-
-            xmaxillanow <- dataNow[k,4,1,1]
-            ymaxillanow <- dataNow[k,4,2,1]
-
-            maxillaVectNow <- c(xNasalnow,yNasalnow)-c(xmaxillanow,ymaxillanow)
-
-            if (!is.na(maxillaVectNow[1]) & !is.na(maxillaVectNow[1])) {
-              lengthMaxillaVectNow <- sqrt(maxillaVectNow[1]^2+maxillaVectNow[2]^2)
-
-              angNow <- acos((maxillaVectInit %*% maxillaVectNow)/(abs(lengthMaxillaVectInit)*abs(lengthMaxillaVectNow)))
-
-              maxAngNowDegree <- angNow*180/pi
-
-              if(is.na(angNow)==FALSE) {
-                if(angNow>=0) {
-                  tempVect[k] <- maxAngNowDegree
-                  maxRotDF[k,1,i] <- maxAngNowDegree
-                  finalData$maxMaxillaRot [i] <- max(tempVect, na.rm = TRUE)
-                  finalData$timeMaxMaxillaRot[i] <- match(max(tempVect, na.rm = TRUE),tempVect)
-                }
-              }
-            }
-          }
-
-
-          if (sum(!is.na(tempVect))>10) {
-
-            maxRotNow <- na.omit(tempVect)
-            framesNow <- seq(from=1, to=longestVid, by=1)[which(!is.na(tempVect))]
-
-
-            #Create the first polynomial fit, and then get the positions that this line represents
-            polyFit <- lm(maxRotNow ~ poly(framesNow, 6,raw = TRUE))
-            errorFitLine <- predict(polyFit)
-
-            #plot(maxRotNow~framesNow)
-            #lines(errorFitLine~framesNow)
-
-            #Save the polynomial fit data to maxRotDF
-            for(b in 1:length(errorFitLine)){
-              maxRotDF[framesNow[b],1,i] <- errorFitLine[b]
-            }
-
-            timeMaxMaxillaRot <- which(maxRotDF[,1,i]==max(maxRotDF[,1,i], na.rm = TRUE))
-
-            #Save the max best fit hyoid depression
-            finalData$maxMaxillaRot [i] <- max(maxRotDF[,1,i], na.rm=TRUE)
-            finalData$timeMaxMaxillaRot[i] <- timeMaxMaxillaRot
-
-
-            #Now find the maxilla rotation velocity
-            #Only do this if the maximum maxilla rotation falls outside the first 10 frames in the video
-            if (timeMaxMaxillaRot>9){
-              #Make an expression to represent the best fit polynomial from lm()
-              maxillaBestFit <- makeLMintoFunction(pc = polyFit$coefficients, TRUE)
-
-              # Find the derivative of the best fit polynomial
-              maxillaDeriv <- D(maxillaBestFit, name = "x")
-
-              #Find max hyoid depression velocity from frame 5 until the max hyoid depression is reached
-              maxillaVelocityNow <- eval(maxillaDeriv, envir= list(x=2:timeMaxMaxillaRot))
-              #Divide frame rate calibration by 1000 so it's in units of degrees/milliseconds
-              finalData$maxillaVel[i] <- max(maxillaVelocityNow)*(finalData$frameRate[i]/1000)
-
-              ##plot the hyoid depression velocity
-              #plot(maxillaVelocityNow)
-
-
-            }
-          } else {
-            finalData$maxMaxillaRot[i] <- NA
-            finalData$timeMaxMaxillaRot[i] <- NA
-            finalData$maxillaVel[i] <- NA
-            skippedVids <- c(skippedVids,i)
-            print(paste('Skipped video (maxilla rotation): ', i))
-          }
-
-        } else {
-          finalData$maxMaxillaRot[i] <- NA
-          finalData$timeMaxMaxillaRot[i] <- NA
-          finalData$maxillaVel[i] <- NA
-          skippedVids <- c(skippedVids,i)
-          print(paste('Skipped video (maxilla rotation): ', i))
-        }
-
-
-
-
-
-
-        #####################
-        # Mandible rotation #
-
-
-        xLJInit <- dataNow[1,2,1,1]
-        yLJInit <- dataNow[1,2,2,1]
-
-        xmaxillaInit <- dataNow[1,4,1,1]
-        ymaxillaInit <- dataNow[1,4,2,1]
-
-        ljVectInit <- c(xLJInit,yLJInit)-c(xmaxillaInit,ymaxillaInit)
-
-        lengthljVectInit <- sqrt(ljVectInit[1]^2+ljVectInit[2]^2)
-
-        if (!is.na(lengthljVectInit)) {
-
-          #Run through each frame and find the lj rotation (difference from first frame), save the max value and time of max
-          tempVect <- rep(NA, length(dataNow[,1,1,1]))
-
-          for (k in 1:length(dataNow[,1,1,1])) {
-            xNasalnow <- dataNow[k,3,1,1]
-            yNasalnow <- dataNow[k,3,2,1]
-
-
-            xljnow <- dataNow[k,4,1,1]
-            yljnow <- dataNow[k,4,2,1]
-
-            ljVectNow <- c(xNasalnow,yNasalnow)-c(xljnow,yljnow)
-
-            if (!is.na(ljVectNow[1]) & !is.na(ljVectNow[1])) {
-              lengthljVectNow <- sqrt(ljVectNow[1]^2+ljVectNow[2]^2)
-
-              angNow <- acos((ljVectInit %*% ljVectNow)/(abs(lengthljVectInit)*abs(lengthljVectNow)))
-
-              maxAngNowDegree <- angNow*180/pi
-
-              if(is.na(angNow)==FALSE) {
-                if(angNow>=0) {
-                  tempVect[k] <- maxAngNowDegree
-                  mandRotDF[k,1,i] <- maxAngNowDegree
-                  finalData$maxMandRot [i] <- max(tempVect, na.rm = TRUE)
-                  finalData$timeMaxMandRot[i] <- match(max(tempVect, na.rm = TRUE),tempVect)
-                }
-              }
-            }
-          }
-
-
-          if (sum(!is.na(tempVect))>10) {
-
-            maxRotNow <- na.omit(tempVect)
-            framesNow <- seq(from=1, to=longestVid, by=1)[which(!is.na(tempVect))]
-
-
-            #Create the first polynomial fit, and then get the positions that this line represents
-            polyFit <- lm(maxRotNow ~ poly(framesNow, 6,raw = TRUE))
-            errorFitLine <- predict(polyFit)
-
-            #plot(maxRotNow~framesNow)
-            #lines(errorFitLine~framesNow)
-
-            #Save the polynomial fit data to mandRotDF
-            for(b in 1:length(errorFitLine)){
-              mandRotDF[framesNow[b],1,i] <- errorFitLine[b]
-            }
-
-            timeMaxljRot <- which(mandRotDF[,1,i]==max(mandRotDF[,1,i], na.rm = TRUE))
-
-            #Save the max best fit hyoid depression
-            finalData$maxMandRot [i] <- max(mandRotDF[,1,i], na.rm=TRUE)
-            finalData$timeMaxMandRot[i] <- timeMaxljRot
-
-
-            #Now find the lj rotation velocity
-            #Only do this if the maximum lj rotation falls outside the first 10 frames in the video
-            if (timeMaxljRot>9){
-              #Make an expression to represent the best fit polynomial from lm()
-              ljBestFit <- makeLMintoFunction(pc = polyFit$coefficients, TRUE)
-
-              # Find the derivative of the best fit polynomial
-              ljDeriv <- D(ljBestFit, name = "x")
-
-              #Find max hyoid depression velocity from frame 5 until the max hyoid depression is reached
-              ljVelocityNow <- eval(ljDeriv, envir= list(x=2:timeMaxljRot))
-              #Divide frame rate calibration by 1000 so it's in units of degrees/milliseconds
-              finalData$mandVel[i] <- max(ljVelocityNow)*(finalData$frameRate[i]/1000)
-
-              ##plot the hyoid depression velocity
-              #plot(ljVelocityNow)
-
-
-
-
-            }
-          } else {
-            finalData$maxMandRot[i] <- NA
-            finalData$timeMaxMandRot[i] <- NA
-            finalData$mandVel[i] <- NA
-            skippedVids <- c(skippedVids,i)
-            print(paste('Skipped video (LJ rotation): ', i))
-          }
-
-        } else {
-          finalData$maxMandRot[i] <- NA
-          finalData$timeMaxMandRot[i] <- NA
-          finalData$mandVel[i] <- NA
-          skippedVids <- c(skippedVids,i)
-          print(paste('Skipped video (LJ rotation): ', i))
-        }
-
-
-
-
-
-
-
-
-
-        ################
-        # Ram velocity #
-
-        #First find the earliest frame where the eye is visible
-        f <- 1
-        firstEyeFrame <- 1
-        while (f < length(dataNow[,1,1,1])) {
-
-          if (is.na(dataNow[f,5,1,])) {
-            f <- f+1
-            firstEyeFrame <- f
-          } else {
-
-            xEyeInit <- dataNow[f,5,1,1]
-            yEyeInit <- dataNow[f,5,2,1]
-
-            f <- length(dataNow[,1,1,1]+1)
-          }
-
-
-
-        }
-
-        #Now calculate the average velocity between the first frame and the time when they reach max gape
-        #Only do this if the eye is visible before maax gape is reached
-        if (!is.na(timeMaxGape)) {
-          if (timeMaxGape>firstEyeFrame){
-
-            xEyeFinal <- dataNow[timeMaxGape,5,1,1]
-            yEyeFinal <- dataNow[timeMaxGape,5,2,1]
-
-            eyeDistpix <- sqrt((xEyeFinal-xEyeInit)^2+(yEyeFinal-yEyeInit)^2)
-
-            eyeDist <- eyeDistpix/finalData$cal_pix.mm[i]
-            eyeTime <- timeMaxGape-firstEyeFrame
-
-            ramVelNow <- eyeDist/eyeTime*(finalData$frameRate[i]/1000)
-
-            finalData$ramVel[i] <- ramVelNow
-
-            print(paste('Done with video: ', i))
-          } else {
-            finalData$ramVel[i] <- NA
-            skippedVids <- c(skippedVids,i)
-            print(paste('Skipped video (ram velocity): ', i))
-          }
-        } else {
-          finalData$ramVel[i] <- NA
-          skippedVids <- c(skippedVids,i)
-          print(paste('Skipped video (ram velocity): ', i))
-        }
-
-
-
-
-
-
-        ##########################
-        # Kinematic simultaneity #
-
-        #Measure how well aligned the different kinematic timings are
-        #Using the coefficient of variation
-
-        if(!is.na(timeMaxGape) & !is.na(timeMaxprot) & !is.na(timeMaxHyoid)) {
-
-          timingVect <- c(timeMaxGape,timeMaxprot, timeMaxHyoid)
-          timeVariance <- sd(timingVect)/mean(timingVect)
-          #This is technically called the coefficient of variation
-
-          finalData$simultKinematics[i] <- timeVariance
-          finalData$simultKinematics2[i] <- timeMaxGape-timeMaxHyoid
-
-        } else {
-
-          finalData$simultKinematics[i] <- NA
-
-        }
-
-        h5closeAll()
-
-
-        protPlotNowCali <- protDF[,,i]/finalData$cal_pix.mm[i]
-        protTimeCali <- framesNow[which(!is.na(protPlotNowCali))]/finalData$frameRate[i]
-        gapePlotNowCali <- gapeDF[,,i]/finalData$cal_pix.mm[i]
-        gapeTimeCali <- framesNow[which(!is.na(gapePlotNowCali))]/finalData$frameRate[i]
-        hyoidPlotNowCali <- hyoidDF[,,i]/finalData$cal_pix.mm[i]
-        hyoidTimeCali <- framesNow[which(!is.na(hyoidPlotNowCali))]/finalData$frameRate[i]
-        maxRotPlotNowCali <- maxRotDF[,,i]/finalData$cal_pix.mm[i]
-        maxRotTimeCali <- framesNow[which(!is.na(maxRotPlotNowCali))]/finalData$frameRate[i]
-        maxTimePlotNowCali <- max(framesNow)/ finalData$frameRate[i]
-
-        #This plots the video, showing the relative timing of each kinematic variable and how good the polynomial fit is
-
-        #png() and dev.off() are the starting and ending calls to save it as a png on the disk.
-
-        fullFilenameNow <- paste0('C:/Users/matth/Documents/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/Sleap data/Plots/',fileNameNow,'.png')
-        png(fullFilenameNow,
-            width     = 5,
-            height    = 7,
-            units     = "in",
-            res       = 300)
-
-
-        par(mfrow = c(4, 1))
-
-        if(sum(protDF[,,i], na.rm=TRUE)>0){
-          plot(na.omit(protPlotNowCali)~protTimeCali, main='Protrusion', xlim=c(0,maxTimePlotNowCali), col='grey')
-          lines(y=na.omit(protPlotNowCali), x=protTimeCali, lwd=2, col='red')
-          abline(v=finalData$timeMaxProt[i]/finalData$frameRate[i])
-        } else{plot.new()}
-
-        if(sum(gapeDF[,,i], na.rm=TRUE)>0){
-          plot(na.omit(gapePlotNowCali)~gapeTimeCali, main='Gape', xlim=c(0,maxTimePlotNowCali), col='grey')
-          lines(y=na.omit(gapePlotNowCali), x=gapeTimeCali, lwd=2, col='red')
-          abline(v=finalData$timeMaxGape[i]/finalData$frameRate[i])
-        } else{plot.new()}
-
-        if(sum(hyoidDF[,,i], na.rm=TRUE)>0){
-          plot(na.omit(hyoidPlotNowCali)~hyoidTimeCali, main='Hyoid Depression', xlim=c(0,maxTimePlotNowCali), col='grey')
-        #   lines(y=na.omit(hyoidPlotNowCali), x=hyoidTimeCali, lwd=2, col='red')
-        #   abline(v=finalData$timeMaxHyoidDep[i]/finalData$frameRate[i])
-        # } else{plot.new()}
-        # 
-        # if(sum(maxRotDF[,,i], na.rm=TRUE)>0){
-        #   plot(na.omit(maxRotPlotNowCali)~maxRotTimeCali, main='Maxilla Rotation', xlim=c(0,maxTimePlotNowCali), col='grey')
-        #   lines(y=na.omit(maxRotPlotNowCali), x=maxRotTimeCali, lwd=2, col='red')
-        #   abline(v=finalData$timeMaxMaxillaRot[i]/finalData$frameRate[i])
-        # } else{plot.new()}
-        # 
-        # 
-        # mtext(fileNameNow, side = 1, line = -2, adj=.9,outer = TRUE)
-        # 
-        # dev.off()
         
-        }
+        
 }
   
   
+        
+        
+        
+        
+        
+        
+        
+        
+  
+        
+#########################################
+# Range of motion (per individual fish) #
+#########################################
+  # ROM = largest per-video _Max value across all of an individual's videos
+  # Every video from the same individual gets the same ROM value
+  # NA if none of that individual's videos have a value
+
+  # Left side = ROM column, right side = per-video column it comes from
+  romPairs <- c(Protrusion_ROM          = "Protrusion_Max",
+                Mandible_ROM            = "Mandible_Max",
+                Mandible_tip_disp_ROM   = "Mandible_tip_disp_Max",
+                Mandible_depression_ROM = "Mandible_depression_Max",
+                Hyoid_ROM               = "Hyoid_Max",
+                Neurocranium_ROM        = "Neurocranium_Max")
+
+  for(romNow in names(romPairs)) {
+
+    maxColNow <- romPairs[romNow]
+
+    for(idNow in unique(finalData$Unique.ID)) {
+
+      rowsNow   <- which(finalData$Unique.ID == idNow)
+      valuesNow <- finalData[[maxColNow]][rowsNow]
+
+      if(any(!is.na(valuesNow))) {
+        finalData[[romNow]][rowsNow] <- max(valuesNow, na.rm=TRUE)
+      } else {
+        finalData[[romNow]][rowsNow] <- NA_real_
+      }
+    }
+  }
+
+
+  # Checks
+    # How many individuals have each ROM?
+  sapply(names(romPairs), function(romNow) length(unique(finalData$Unique.ID[!is.na(finalData[[romNow]])])))
+
+    # Mandible_depression_ROM should equal Mandible_length * sin(Mandible_ROM) exactly, because each fish has one Mandible_length
+  all.equal(finalData$Mandible_depression_ROM, finalData$Mandible_length * sin(finalData$Mandible_ROM))
+  
+    # Maxilla sign check: most videos should have positive maxilla rotation at tmax (ventral tip swung anteriorly)
+  sum(finalData$Maxilla_ang_tmax < 0, na.rm=TRUE)
+  sum(finalData$Maxilla_ang_tmax > 0, na.rm=TRUE)
+
+    # Measured vs. predicted maxilla angle. Should be positively correlated. If negative, oralOpenSign or the theta3 sign convention is flipped   ### CHECK
+  cor(finalData$Maxilla_ang_tmax, finalData$Maxilla_ang_predicted_tmax, use = "complete.obs")
+  
+  
+    # Skipped analyses: how many videos per section and reason
+  table(skippedVids$section)
+  table(skippedVids$reason)
+
+    # Videos with the most problems (best ones to look at first when checking landmarks)
+  head(sort(table(skippedVids$vidName), decreasing = TRUE), 20)
+
+    # Save the log so I can work through it alongside the videos
+  write.csv(skippedVids, 'PATH/TO/skippedVids.csv', row.names = FALSE)   ### CHANGE path
   
   
   
   
-  ############################     CALCULATED VARIABLES      ############################
+  
+  
+  
+  
+  
+  
+    
+############################     CALCULATED VARIABLES      ############################
   
   #Relative_ttpg, Relative_tmax, Kinetic_Synchronization
   
