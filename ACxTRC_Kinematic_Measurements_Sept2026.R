@@ -156,8 +156,35 @@ fileNames2 <- gsub("\\.analysis\\.h5$", "",fileNames) #Keep the name of the file
     print(paste0("TEST MODE: running ", length(fileNames), " videos"))
   }
 
+
+#################
+#   Run mode    #
+#################
+  # "all"         = process every video from scratch
+  # "unprocessed" = reuse the results of videos that were processed successfully in the last run, and only process
+                    # videos that are new or that failed last time. Reads the last run's outputs (the files below)
+  # Steps that combine videos (ROM, kinetic synchronization, the pooled hyoid retraction ratio, the no-eye hyoid triangle and buccal volume) are always redone for every video
+  runMode <- "all"   ### CHANGE  "all" or "unprocessed"
+
+  if(!(runMode %in% c("all", "unprocessed"))) {
+    stop('runMode must be "all" or "unprocessed"')
+  }
+
+  # Output files. "unprocessed" mode reads the last run back from these, so keep them in the same place between runs
+  outFinalData  <- 'PATH/TO/kinematicsAll_sleapOutput.csv'   ### CHANGE
+  outTimeSeries <- 'PATH/TO/kinematicsTimeSeries.rds'   ### CHANGE
+  outSkipped    <- 'PATH/TO/skippedVids.csv'   ### CHANGE
+  outFailed     <- 'PATH/TO/failedVids.csv'   ### CHANGE
+  outResume     <- 'PATH/TO/resumeState.rds'   ### CHANGE   # finalData and skippedVids as R objects, so they read back exactly
+
+  # Log of errors. A video with an error is skipped (its partial results are removed) and the run carries on
+    # One row per error: the video, the step it happened in, and the error message
+    # Errors before the analysis loop (file, data sheet, calibration, PIV, scan matching) also stop the video from being analysed
+  failedVids <- data.frame(vidName = character(), stage = character(), error = character())
+
+
 #First view the structure of the file
-print(h5ls(file=fileNames[1]))
+try(print(h5ls(file=fileNames[1])))
 
 
 #####################
@@ -263,6 +290,12 @@ print(h5ls(file=fileNames[1]))
         return(NA_real_)
       }
       cor(x[bothNow], y[bothNow])
+    }
+
+
+    # Add a row to the error log
+    addFail <- function(failLog, vidName, stage, error) {
+      rbind(failLog, data.frame(vidName = vidName, stage = stage, error = error))
     }
 
 
@@ -558,13 +591,33 @@ finalData <- data.frame(vidName = fileNames2,
 
 
 
+# processed = TRUE once a video has been through the analysis loop without an error
+# processError = the error message if it failed (NA if not)
+finalData$processed    <- FALSE
+finalData$processError <- NA_character_
+
+
 #Find the longest video and record how many frames it has
+  # A file that can't be read is logged and left out
 longestVid <- 0
 for (i in 1:nVids) {
-  info <- h5ls(fileNames[i])
-  dims <- as.numeric(strsplit(info$dim[info$name == "tracks"], " x ")[[1]])
+  dims <- tryCatch({
+    info <- h5ls(fileNames[i])
+    as.numeric(strsplit(info$dim[info$name == "tracks"], " x ")[[1]])
+  }, error = function(e) e)
+
+  if(inherits(dims, "error")) {
+    failedVids <- addFail(failedVids, fileNames2[i], "Read file", conditionMessage(dims))
+    finalData$processError[i] <- paste0("Read file: ", conditionMessage(dims))
+    next
+  }
+
   checkLength <- dims[1]
   if (checkLength>longestVid) {longestVid=checkLength}
+}
+
+if(longestVid == 0) {
+  stop("None of the SLEAP files could be read")
 }
 
 
@@ -651,6 +704,13 @@ for(i in 1:nVids) {
   
   #find where ACxTRC is
   stablePos <- which(splitStr[[1]]=='ACxTRC')
+
+  # The name must contain "ACxTRC" exactly once, followed by enough parts to read the date, animal and event
+  if(length(stablePos) != 1 || length(splitStr[[1]]) < stablePos + 3) {
+    failedVids <- addFail(failedVids, fileNames2[i], "File name", "Can't find the date, animal and event in the file name")
+    finalData$processError[i] <- "File name: can't find the date, animal and event"
+    next
+  }
   
   #Extract data from filename
   if (splitStr[[1]][stablePos+2]=='F2'){
@@ -700,6 +760,12 @@ for(sigh in 1:nrow(vidData)) {
 
 
 for(check in 1:nrow(finalData)){
+
+  # Already failed (file or file name)
+  if(!is.na(finalData$processError[check])) {
+    next
+  }
+
   dateNow <- finalData$date[check]
   animalNow <- finalData$Animal.ID[check]
   eventNow <- finalData$Event[check]
@@ -707,7 +773,10 @@ for(check in 1:nrow(finalData)){
   vidRowNow <- which(vidData$Date2==dateNow & vidData$Animal.ID==animalNow & vidData$Event==eventNow)
   
   if(length(vidRowNow) != 1) {
-    stop("Problem matching ", fileNames2[check], " to a single row from the video data sheet. It matched ", length(vidRowNow)," rows: ", paste(vidRowNow, collapse = ", "))
+    msgNow <- paste0("Matched ", length(vidRowNow), " rows in the video data sheet (needs exactly 1): ", paste(vidRowNow, collapse = ", "))
+    failedVids <- addFail(failedVids, fileNames2[check], "Data sheet match", msgNow)
+    finalData$processError[check] <- paste0("Data sheet match: ", msgNow)
+    next
   }
   
   finalData$equivVidRow[check] <- vidRowNow
@@ -721,7 +790,10 @@ for(check in 1:nrow(finalData)){
   #Get the kinematic video calibration value
   calRowNow <- which(calValueTable$cal.File==finalData$cal_lookup[check])
   if(length(calRowNow)!=1){
-    stop("Calibration lookup failed for ", fileNames2[check], ": '", finalData$cal_lookup[check], "' matched ", length(calRowNow), " rows")
+    msgNow <- paste0("Calibration '", finalData$cal_lookup[check], "' matched ", length(calRowNow), " rows (needs exactly 1)")
+    failedVids <- addFail(failedVids, fileNames2[check], "Calibration", msgNow)
+    finalData$processError[check] <- paste0("Calibration: ", msgNow)
+    next
   }
   finalData$cal_pix.mm[check] <- calValueTable$pix.mm[calRowNow]
   #Don't forget to correct to mm and seconds
@@ -765,7 +837,10 @@ print(length(unique(finalData$Unique.ID)))
     
     # More than one match means something is wrong with the data
     if(length(pressureRowNow) > 1) {
-      stop("PIV lookup for ", fileNames2[i], " matched ", length(pressureRowNow), " rows in the pressure/velocity data")
+      msgNow <- paste0("Matched ", length(pressureRowNow), " rows in the PIV pressure/velocity results (needs 0 or 1)")
+      failedVids <- addFail(failedVids, fileNames2[i], "PIV match", msgNow)
+      finalData$processError[i] <- paste0("PIV match: ", msgNow)
+      next
     }
     
     # Convert times from ms to seconds so they match timeSeriesNow
@@ -864,7 +939,10 @@ print(length(unique(finalData$Unique.ID)))
       }
       
       if(length(scanRowNow) > 1) {
-        stop("Scan lookup for ", fileNames2[i], " matched ", length(scanRowNow), " rows in the scan data")
+        msgNow <- paste0("Matched ", length(scanRowNow), " rows in the scan data (needs 0 or 1)")
+        failedVids <- addFail(failedVids, fileNames2[i], "Scan match", msgNow)
+        finalData$processError[i] <- paste0("Scan match: ", msgNow)
+        next
       }
       
       for(colNow in names(scanColumns)) {
@@ -1023,6 +1101,65 @@ print(length(unique(finalData$Unique.ID)))
   
 
 
+##############################################
+# Reuse results from the last run (optional) #
+##############################################
+  # In "unprocessed" mode, videos that were processed successfully in the last run are copied in instead of rerun
+  # Only values made by the analysis loop (and after it) are copied. Values filled in before the loop
+    # (data sheet, calibration, PIV, scans) always come from this run, so updated inputs are picked up
+  # Steps after the loop that combine videos are redone for every video, so their old values are overwritten
+
+  keepVids <- character(0)           # videos reused from the last run
+  processedThisRun <- character(0)   # videos run through the analysis loop this time
+
+  if(runMode == "unprocessed") {
+
+    if(!file.exists(outResume) || !file.exists(outTimeSeries)) {
+      print("No results from a previous run found, so every video will be processed")
+
+    } else {
+      prevState <- readRDS(outResume)
+      prevTS    <- readRDS(outTimeSeries)
+      prevData  <- prevState$finalData
+
+      # Reuse: processed without error last time, still in this run's video list, and no error before the loop this time
+      keepVids <- prevData$vidName[prevData$processed %in% TRUE]
+      keepVids <- intersect(keepVids, finalData$vidName[is.na(finalData$processError)])
+
+      if(length(keepVids) > 0) {
+
+        # Columns to copy: everything still empty at this point (made in or after the loop)
+        filledNow <- names(finalData)[colSums(!is.na(finalData)) > 0]
+        copyCols  <- setdiff(intersect(names(finalData), names(prevData)), c(filledNow, names(scanColumns), "processError"))
+
+        rowsNew <- match(keepVids, finalData$vidName)
+        rowsOld <- match(keepVids, prevData$vidName)
+        for(colNow in copyCols) {
+          finalData[[colNow]][rowsNew] <- prevData[[colNow]][rowsOld]
+        }
+        finalData$processed[rowsNew] <- TRUE
+
+        # Time series, matched by video name
+        for(tsName in intersect(names(finalTimeSeriesData), names(prevTS))) {
+          nCopy <- min(dim(finalTimeSeriesData[[tsName]])[2], dim(prevTS[[tsName]])[2])
+          finalTimeSeriesData[[tsName]][1, 1:nCopy, keepVids] <- prevTS[[tsName]][1, 1:nCopy, keepVids]
+        }
+
+        # Skipped-analysis log entries made in the loop for the reused videos (entries made after the loop are remade)
+        afterLoopSections <- c("Hyoid triangle", "Buccal volume")
+        skippedVids <- prevState$skippedVids[prevState$skippedVids$vidName %in% keepVids & !(prevState$skippedVids$section %in% afterLoopSections), ]
+      }
+
+      rm(prevState, prevTS, prevData)
+    }
+  }
+
+  print(paste0("Run mode '", runMode, "': reusing ", length(keepVids), " videos, analysing ",
+               sum(!(finalData$vidName %in% keepVids) & is.na(finalData$processError)), ", ",
+               sum(!is.na(finalData$processError)), " already failed before the loop"))
+
+
+
 #Record everything that exists before the analysis loop
   # At the top of each loop iteration, anything NOT in this list is deleted, so no per-video variable can carry over to the next video
   # Anything that needs to survive across videos (finalData, finalTimeSeriesData, skippedVids, functions, settings) must be created ABOVE this line
@@ -1041,6 +1178,20 @@ for(i in 1:nVids) {
           staleVars <- setdiff(ls(), c(preLoopVars, "i"))
           rm(list = staleVars)
           rm(staleVars)
+
+
+        ##### Skip videos that failed before the loop, or that are reused from the last run
+          if(!is.na(finalData$processError[i]) || finalData$vidName[i] %in% keepVids) {
+            next
+          }
+
+        ##### Error handling
+          # Everything below runs inside tryCatch. If any step errors (including the stop() checks), the error is logged in
+            # failedVids, this video's partial results are removed, and the loop moves on to the next video
+          # Snapshot of this video's row and log length, to put back if it fails
+          snapNow <- list(row = finalData[i, ], nLog = nrow(skippedVids))
+
+          loopError <- tryCatch({
   
   
         #Get the names of the landmarks from this file and check that they are in the same order as expected
@@ -2387,6 +2538,26 @@ for(i in 1:nVids) {
 
         
         
+
+
+          # Reached the end without an error
+          finalData$processed[i] <- TRUE
+          processedThisRun <- c(processedThisRun, fileNames2[i])
+          NULL
+
+          }, error = function(e) e)   # end of tryCatch
+
+        ##### On an error: log it, remove this video's partial results, and carry on
+          if(!is.null(loopError)) {
+            failedVids <- addFail(failedVids, fileNames2[i], "Analysis loop", conditionMessage(loopError))
+            finalData[i, ] <- snapNow$row
+            finalData$processError[i] <- paste0("Analysis loop: ", conditionMessage(loopError))
+            for(tsName in names(finalTimeSeriesData)) {
+              finalTimeSeriesData[[tsName]][1, , i] <- NA
+            }
+            skippedVids <- skippedVids[seq_len(snapNow$nLog), ]
+            print(paste0("ERROR in ", fileNames2[i], ": ", conditionMessage(loopError)))
+          }
 }
   
   
@@ -2408,6 +2579,28 @@ for(i in 1:nVids) {
     # The triangle needs the pooled retraction ratio (beta), which needs every eye-based video first
     # Buccal volume needs hyoid depression and retraction from both eye-based and triangle videos
   # Works from the saved time series. Frame numbers come from nFrames, startFrame and endFrame saved in the loop
+
+
+  ##### Clear values made after the loop (in "unprocessed" mode they were copied from the last run, and are remade here)
+    triPrevRows <- which(finalData$Hyoid_depth_source == "triangle")
+    for(colNow in hyoidColsMain) {
+      finalData[[colNow]][triPrevRows] <- NA
+    }
+    finalData$Hyoid_depth_source[triPrevRows] <- NA
+    for(tsName in c("Hyoid_depression_t", "Hyoid_vel_t", "Hyoid_retraction_t")) {
+      finalTimeSeriesData[[tsName]][1, , triPrevRows] <- NA
+    }
+
+    buccalCols <- c("V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
+                    "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded")
+    for(colNow in buccalCols) {
+      finalData[[colNow]][] <- NA
+    }
+    buccalTS <- c("Ceratohyal_rotation_angle_t", "Ceratohyal_lateral_angle_hypaxial_t", "Ceratohyal_lateral_angle_t", "Ceratohyal_half_width_t",
+                  "Buccal_width_expansion_t", "V_buccal_t", "V_buccal_vel_t", "U_flow_ff_predicted_t")
+    for(tsName in buccalTS) {
+      finalTimeSeriesData[[tsName]][] <- NA
+    }
 
 
   ##### Pooled retraction-to-depression ratio (beta)
@@ -2450,7 +2643,16 @@ for(i in 1:nVids) {
       print(paste0("TEST MODE: only ", length(betaH), " eye-based frames, so using testBeta = ", testBeta))
 
     } else {
-      stop("Only ", length(betaH), " eye-based strike frames with both hyoid depression and retraction. Need at least betaMinFrames = ", betaMinFrames, " to fit the retraction ratio")
+
+      # Too few eye-based frames to fit the ratio: log it and skip the triangle (videos without the eye get no hyoid depression)
+      hyoidBeta <- NA_real_
+      betaResid <- numeric(0)
+      betaPhase <- character(0)
+      betaR2    <- NA_real_
+      msgNow <- paste0("Only ", length(betaH), " eye-based strike frames with both hyoid depression and retraction. Need at least betaMinFrames = ",
+                       betaMinFrames, " to fit the retraction ratio, so the no-eye triangle was skipped")
+      failedVids <- addFail(failedVids, "ALL VIDEOS", "Hyoid retraction ratio", msgNow)
+      print(msgNow)
     }
 
 
@@ -2464,8 +2666,16 @@ for(i in 1:nVids) {
     quadA <- 1 + hyoidBeta^2
 
     triRows <- which(is.na(finalData$Hyoid_depth_source) & !is.na(finalData$Tstart))
+    if(is.na(hyoidBeta)) {
+      triRows <- integer(0)
+    }
 
     for(i in triRows) {
+
+      # Errors are logged and this video's partial results removed, as in the analysis loop
+      snapNow <- list(row = finalData[i, ], ts = lapply(finalTimeSeriesData, function(a) a[1, , i]), nLog = nrow(skippedVids))
+
+      stepError <- tryCatch({
 
       aNow     <- finalData$Nasal_eye_AP_length[i] + finalData$Hyoid_rest_AP[i]
       dHeadNow <- finalData$D_head[i]
@@ -2511,6 +2721,19 @@ for(i in 1:nVids) {
       }
 
       finalData$Hyoid_depth_source[i] <- "triangle"
+
+        NULL
+      }, error = function(e) e)   # end of tryCatch
+
+      if(!is.null(stepError)) {
+        failedVids <- addFail(failedVids, fileNames2[i], "Hyoid triangle", conditionMessage(stepError))
+        finalData[i, ] <- snapNow$row
+        for(tsName in names(finalTimeSeriesData)) {
+          finalTimeSeriesData[[tsName]][1, , i] <- snapNow$ts[[tsName]]
+        }
+        skippedVids <- skippedVids[seq_len(snapNow$nLog), ]
+        print(paste0("ERROR in ", fileNames2[i], " (Hyoid triangle): ", conditionMessage(stepError)))
+      }
     }
 
 
@@ -2530,6 +2753,11 @@ for(i in 1:nVids) {
     bvRows <- which(!is.na(finalData$Hyoid_Max) & !is.na(finalData$Hyoid_depth_source))
 
     for(i in bvRows) {
+
+      # Errors are logged and this video's partial results removed, as in the analysis loop
+      snapNow <- list(row = finalData[i, ], ts = lapply(finalTimeSeriesData, function(a) a[1, , i]), nLog = nrow(skippedVids))
+
+      stepError <- tryCatch({
 
       cerL   <- finalData$Ceratohyal_length[i]
       cerAP0 <- finalData$Ceratohyal_AP_rest[i]
@@ -2700,6 +2928,19 @@ for(i in 1:nVids) {
         } else {
           skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Fewer than 10 strike frames: no buccal volume rates")
         }
+
+        NULL
+      }, error = function(e) e)   # end of tryCatch
+
+      if(!is.null(stepError)) {
+        failedVids <- addFail(failedVids, fileNames2[i], "Buccal volume", conditionMessage(stepError))
+        finalData[i, ] <- snapNow$row
+        for(tsName in names(finalTimeSeriesData)) {
+          finalTimeSeriesData[[tsName]][1, , i] <- snapNow$ts[[tsName]]
+        }
+        skippedVids <- skippedVids[seq_len(snapNow$nLog), ]
+        print(paste0("ERROR in ", fileNames2[i], " (Buccal volume): ", conditionMessage(stepError)))
+      }
     }
 
 
@@ -2805,7 +3046,7 @@ for(i in 1:nVids) {
   print(head(sort(table(skippedVids$vidName), decreasing = TRUE), 20))
 
     # Save the log so I can work through it alongside the videos
-  write.csv(skippedVids, 'PATH/TO/skippedVids.csv', row.names = FALSE)   ### CHANGE path
+  write.csv(skippedVids, outSkipped, row.names = FALSE)
   
   
   
@@ -2878,10 +3119,26 @@ for(i in 1:nVids) {
 # Save    #
 ###########
   # finalData: one row per video. Analyze in a separate script
-  write.csv(finalData, 'PATH/TO/kinematicsAll_sleapOutput.csv', row.names = FALSE)   ### CHANGE path
+  write.csv(finalData, outFinalData, row.names = FALSE)
 
   # finalTimeSeriesData is a list of 3D arrays, so it can't go in a CSV. Save it as an R object and read it back with readRDS()
-  saveRDS(finalTimeSeriesData, 'PATH/TO/kinematicsTimeSeries.rds')   ### CHANGE path
+  saveRDS(finalTimeSeriesData, outTimeSeries)
+
+  # Error log
+  write.csv(failedVids, outFailed, row.names = FALSE)
+
+  # finalData and skippedVids as R objects, for "unprocessed" mode next time
+  saveRDS(list(finalData = finalData, skippedVids = skippedVids), outResume)
+
+
+#############################
+# Errors in this run        #
+#############################
+  # Videos with an error have no results (except reused ones). Fix the cause, then rerun with runMode <- "unprocessed"
+  print(paste0(sum(finalData$processed), " of ", nVids, " videos processed (", length(keepVids), " reused from the last run, ",
+               length(processedThisRun), " analysed this run). ", sum(!finalData$processed), " not processed"))
+  print(table(failedVids$stage))
+  print(failedVids)
 
 
 
