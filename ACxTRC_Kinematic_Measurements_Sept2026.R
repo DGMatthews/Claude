@@ -880,7 +880,7 @@ print(length(unique(finalData$Unique.ID)))
       scanColumns <- c(
         # Mandible
         Mandible_length            = "Mandible_length",          ### CHANGE  jaw joint to LJ tip, anteroposterior leg
-        Nasal_joint_length         = "Nasal_joint_length",       ### CHANGE  nasal tip to jaw joint, lateral view
+        Nasal_QMJ_dist             = "Nasal_QMJ_dist",           ### CHANGE  nasal tip to quadrate-mandible joint, lateral view (not a four-bar link)
         # Gape, buccal volume, neurocranium, hyoid
         W_jaw                      = "W_jaw",                    ### CHANGE
         W_head                     = "W_head",                   ### CHANGE
@@ -895,8 +895,8 @@ print(length(unique(finalData$Unique.ID)))
         # Oral four-bar
         Mandible_input_length      = "Mandible_input_length",    ### CHANGE  input link
         Maxilla_length             = "Maxilla_length",           ### CHANGE  coupler link
-        Nasal_length               = "Nasal_length",             ### CHANGE  output link
-        Oral_fixed_length          = "Oral_fixed_length",        ### CHANGE  fixed link
+        Maxilla_palatine_length    = "Maxilla_palatine_length",  ### CHANGE  output link: dorsal maxilla tip to anterior palatine tip
+        Oral_fixed_length          = "Oral_fixed_length",        ### CHANGE  fixed link: quadrate-mandible joint to anterior palatine tip
         Oral_theta2_rest           = "Oral_theta2_rest",         ### CHANGE
         # Opercular four-bar
         Operculum_length           = "Operculum_length",         ### CHANGE  input link
@@ -996,7 +996,7 @@ print(length(unique(finalData$Unique.ID)))
         # Link ratios
         finalData$Oral_input_ratio        <- finalData$Mandible_input_length / finalData$Oral_fixed_length
         finalData$Oral_coupler_ratio      <- finalData$Maxilla_length / finalData$Oral_fixed_length
-        finalData$Oral_output_ratio       <- finalData$Nasal_length / finalData$Oral_fixed_length
+        finalData$Oral_output_ratio       <- finalData$Maxilla_palatine_length / finalData$Oral_fixed_length
         finalData$Opercular_input_ratio   <- finalData$Operculum_length / finalData$Opercular_fixed_length
         finalData$Opercular_coupler_ratio <- finalData$IOP_link_length / finalData$Opercular_fixed_length
         finalData$Opercular_output_ratio  <- finalData$RA_process_length / finalData$Opercular_fixed_length
@@ -1005,7 +1005,7 @@ print(length(unique(finalData$Unique.ID)))
         # Resting angles from the four-bar model
         finalData$Oral_theta3_rest <- fourBarTheta3(finalData$Oral_theta2_rest,
                                                     finalData$Mandible_input_length, finalData$Maxilla_length,
-                                                    finalData$Nasal_length, finalData$Oral_fixed_length)
+                                                    finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
         
         finalData$Opercular_theta4_rest <- fourBarTheta4(finalData$Opercular_theta2_rest,
                                                          finalData$Operculum_length, finalData$IOP_link_length,
@@ -1015,7 +1015,7 @@ print(length(unique(finalData$Unique.ID)))
         # Output angles at the static input rotations
         finalData$Oral_theta3_30 <- fourBarTheta3(finalData$Oral_theta2_rest + oralOpenSign * oralStaticAngle,
                                                   finalData$Mandible_input_length, finalData$Maxilla_length,
-                                                  finalData$Nasal_length, finalData$Oral_fixed_length)
+                                                  finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
         
         finalData$Opercular_theta4_10 <- fourBarTheta4(finalData$Opercular_theta2_rest + opercularOpenSign * opercularStaticAngle,
                                                        finalData$Operculum_length, finalData$IOP_link_length,
@@ -1618,7 +1618,7 @@ for(i in 1:nVids) {
         ############
 
         # Mandible rotation from the triangle Nasal - jaw joint - LJ
-          # D = Nasal tip to jaw joint distance (Nasal_joint_length, from scans)
+          # D = Nasal tip to jaw joint distance (Nasal_QMJ_dist, from scans)
           # r = jaw joint to LJ tip (Mandible_length, from scans)
           # d = Nasal to LJ distance in each frame (from the video)
           # Law of cosines gives the angle at the jaw joint: phi = acos((D^2 + r^2 - d^2) / (2*D*r))
@@ -1676,7 +1676,7 @@ for(i in 1:nVids) {
 
             ##### Mandible_ang_t and Mandible_depression_t (need scan values)
 
-              jawD <- finalData$Nasal_joint_length[i]
+              jawD <- finalData$Nasal_QMJ_dist[i]
               jawR <- finalData$Mandible_length[i]
 
               if(!is.na(jawD) && !is.na(jawR)) {
@@ -1774,7 +1774,7 @@ for(i in 1:nVids) {
               }
 
               # Angle (only checked when scan values exist, since missing scans aren't a landmarking problem)
-              if(!is.na(finalData$Nasal_joint_length[i]) && !is.na(finalData$Mandible_length[i])) {
+              if(!is.na(finalData$Nasal_QMJ_dist[i]) && !is.na(finalData$Mandible_length[i])) {
                 if(!is.na(finalData$tmax[i]) && is.na(finalData$Mandible_ang_tmax[i])) {
                   skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", "Angle at tmax not calculated: tmax outside tracked frames or < 10 frames")
                 }
@@ -1799,7 +1799,7 @@ for(i in 1:nVids) {
             
             oralIn  <- finalData$Mandible_input_length[i]
             oralCp  <- finalData$Maxilla_length[i]
-            oralOut <- finalData$Nasal_length[i]
+            oralOut <- finalData$Maxilla_palatine_length[i]
             oralFx  <- finalData$Oral_fixed_length[i]
             
             finalData$Oral_theta2_tmax[i] <- finalData$Oral_theta2_rest[i] + oralOpenSign * finalData$Mandible_ang_tmax[i]
