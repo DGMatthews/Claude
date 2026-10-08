@@ -5,7 +5,7 @@
   # Permanently separate copy of ACxTRC_Kinematic_Measurements_Sept2026.R, for results that only need
     # anatomical landmarks from the mandible, maxilla and premaxilla
   # Everything that needs other scan measurements is removed:
-    # Mandible angle and depression (need Nasal_joint_length, which needs the nasal bone)
+    # Mandible angle and depression (need Nasal_QMJ_dist, which needs the nasal bone)
     # Oral and opercular four-bars (need nasal, neurocranium and opercular links)
     # Neurocranium linear values (need Neurocranium_length)
     # Hyoid depression, retraction, the triangle and the pooled retraction ratio (need D_head, D_head_backup, Hyoid_rest_AP, Nasal_eye_AP_length)
@@ -1320,7 +1320,7 @@ for(i in 1:nVids) {
         ############
 
         # Mandible tip displacement only. No scan values needed
-          # Mandible angle and depression are not calculated in this version: they need Nasal_joint_length (nasal tip to jaw joint)
+          # Mandible angle and depression are not calculated in this version: they need Nasal_QMJ_dist (nasal tip to jaw joint)
         # Variables
           # Mandible_tip_disp_t:   change in Nasal to LJ distance from rest (mm)
 
