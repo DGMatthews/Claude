@@ -887,7 +887,7 @@ print(length(unique(finalData$Unique.ID)))
         D_head                     = "D_head",                   ### CHANGE
         Neurocranium_length        = "Neurocranium_length",      ### CHANGE
         Ceratohyal_length          = "Ceratohyal_length",        ### CHANGE
-        D_head_backup              = "D_head_backup",            ### CHANGE  nasal tip to resting hyoid (urohyal) point, lateral view
+        D_head_backup              = "D_head_backup",            ### CHANGE  nasal tip to rostral urohyal tip (= tracked hyoid point) at rest, lateral view
         Nasal_eye_AP_length        = "Nasal_eye_AP_length",      ### CHANGE  AP distance, nasal tip to eye-level landmark (caudal base of parasphenoid)
         Hyoid_rest_AP              = "Hyoid_rest_AP",            ### CHANGE  AP distance, eye-level landmark to rostral ceratohyal tip. Positive if the tip is posterior
         Ceratohyal_AP_rest         = "Ceratohyal_AP_rest",       ### CHANGE  AP distance between rostral and caudal ceratohyal tips at rest
@@ -2216,7 +2216,7 @@ for(i in 1:nVids) {
         # Hyoid #
         #########
 
-        # Hyoid landmark = anterior tip of the urohyal, seen through the skin
+        # Hyoid landmark = rostral tip of the ceratohyal, seen through the skin (joined to the rostral tip of the urohyal, so the two are treated as the same point)
           # Only visible mid-strike, so resting positions come from the scans
         # Main version (Hyoid_*): dorsoventral depth below the Eye-Nasal line, minus D_head
           # Videos with the eye: measured here, in the skull frame (line taken from the same frame, so neurocranium rotation is already removed)

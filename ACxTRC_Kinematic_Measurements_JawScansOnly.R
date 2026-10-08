@@ -1759,7 +1759,7 @@ for(i in 1:nVids) {
         # Hyoid #
         #########
 
-        # Hyoid landmark = anterior tip of the urohyal, seen through the skin
+        # Hyoid landmark = rostral tip of the ceratohyal, seen through the skin (joined to the rostral tip of the urohyal, so the two are treated as the same point)
         # No scan zeros in this version, so only values that don't depend on the resting position are calculated:
           # Time_hyoid (time of peak, from Tstart), Hyoid_vel_t, Hyoid_vel_tmax, Hyoid_vel_mean_visible, Hyoid_visible_frac
           # Depression, retraction and the no-eye triangle need D_head, D_head_backup, Hyoid_rest_AP and Nasal_eye_AP_length
