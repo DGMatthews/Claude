@@ -171,11 +171,12 @@ fileNames2 <- gsub("\\.analysis\\.h5$", "",fileNames) #Keep the name of the file
   }
 
   # Output files. "unprocessed" mode reads the last run back from these, so keep them in the same place between runs
-  outFinalData  <- 'PATH/TO/kinematicsAll_sleapOutput.csv'   ### CHANGE
-  outTimeSeries <- 'PATH/TO/kinematicsTimeSeries.rds'   ### CHANGE
-  outSkipped    <- 'PATH/TO/skippedVids.csv'   ### CHANGE
-  outFailed     <- 'PATH/TO/failedVids.csv'   ### CHANGE
-  outResume     <- 'PATH/TO/resumeState.rds'   ### CHANGE   # finalData and skippedVids as R objects, so they read back exactly
+  # Saved in the ACxTRC Data folder, next to scan_measurements.csv (the folder must already exist)
+  outFinalData  <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/kinematicsAll_sleapOutput.csv'   ### CHANGE
+  outTimeSeries <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/kinematicsTimeSeries.rds'   ### CHANGE
+  outSkipped    <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/skippedVids.csv'   ### CHANGE
+  outFailed     <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/failedVids.csv'   ### CHANGE
+  outResume     <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/resumeState.rds'   ### CHANGE   # finalData and skippedVids as R objects, so they read back exactly
 
   # Log of errors. A video with an error is skipped (its partial results are removed) and the run carries on
     # One row per error: the video, the step it happened in, and the error message
@@ -1188,10 +1189,10 @@ print(length(unique(finalData$Unique.ID)))
   # Created before the loop so they survive the per-video reset and can be used after the loop
 
   # Smoothing
-  lambdaRef        <- 5e-6
+  lambdaRef        <- 5e-5
   lambdaRefDerived <- lambdaRef/5       # smoothing for derived series (R_t etc.). Should do less smoothing than the original pass
   spanRef          <- 73
-  lambdaRefRam     <- lambdaRefDerived  ### CHANGE  smoothing for x_mouth and the nasal point in the Ram section. Acceleration is very sensitive to it
+  lambdaRefRam     <- 1e-4              ### CHANGE  smoothing for x_mouth and the nasal point in the Ram section. Acceleration is very sensitive to it
   ######################### RESET THESE BASED ON TEST VIDEO FITS #########################
 
   # Hyoid
@@ -1203,7 +1204,7 @@ print(length(unique(finalData$Unique.ID)))
 
   # QC plots (one PNG per video)
   saveQCplots  <- TRUE                   ### CHANGE  FALSE to skip (they take time and disk space for ~2900 videos)
-  qcPlotFolder <- 'PATH/TO/QC_plots'     ### CHANGE
+  qcPlotFolder <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/QC_plots'     ### CHANGE
 
   # finalData columns for each hyoid version. Names on the left match the values returned by hyoidOutputs()
   hyoidColsMain <- c(Time = "Time_hyoid", visible_frac = "Hyoid_visible_frac", vel_mean_visible = "Hyoid_vel_mean_visible",
