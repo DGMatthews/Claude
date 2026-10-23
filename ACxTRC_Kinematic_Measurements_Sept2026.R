@@ -673,7 +673,6 @@ finalData <- data.frame(vidName = fileNames2,
                         Buccal_width_expansion_Max = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_full = rep(NA_real_, nVids),
-                        Time_flow_predicted = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_frames = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_bigGape = rep(NA_real_, nVids),
                         Width_hypaxial_floor_frames = rep(NA_real_, nVids),
@@ -2787,7 +2786,7 @@ for(i in 1:nVids) {
     }
 
     buccalCols <- c("V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
-                    "U_flow_ff_predicted_mean_full", "Time_flow_predicted", "U_flow_ff_predicted_mean_frames", "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
+                    "U_flow_ff_predicted_mean_full", "U_flow_ff_predicted_mean_frames", "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
                     "Hyoid_beyond_ceratohyal_frames")
     for(colNow in buccalCols) {
       finalData[[colNow]][] <- NA
@@ -3105,15 +3104,12 @@ for(i in 1:nVids) {
           U_flow_ff_predicted_t <- V_buccal_vel_t / areaNow
           finalTimeSeriesData$U_flow_ff_predicted_t[1, framesNow, i] <- U_flow_ff_predicted_t
 
-          # U_flow_ff_predicted_mean (mm/s): from Tstart to the frame of peak predicted flow, positive values only
-            # Negative values (buccal volume shrinking) are left out, since that water leaves through the opercula, not the mouth
-            # NA if predicted flow is never positive
-          peakFlowFrame <- which.max(U_flow_ff_predicted_t)
-          flowFramesNow <- which(seq_len(nStrike) <= peakFlowFrame & U_flow_ff_predicted_t > 0)
-          if(length(flowFramesNow) > 0) {
-            finalData$U_flow_ff_predicted_mean[i] <- mean(U_flow_ff_predicted_t[flowFramesNow])
-            finalData$Time_flow_predicted[i]      <- timeNow[peakFlowFrame] - finalData$Tstart[i]   # s from Tstart
-            finalData$U_flow_ff_predicted_mean_frames[i] <- length(flowFramesNow)                 # frames averaged
+          # U_flow_ff_predicted_mean (mm/s): all frames from Tstart to tmaxVel (time of peak measured flow velocity), negative values included
+            # NA if tmaxVel is missing or outside Tstart-Tend
+          flowFramesNow <- which(timeNow <= finalData$tmaxVel[i])
+          if(!is.na(finalData$tmaxVel[i]) && finalData$tmaxVel[i] <= timeNow[nStrike] && length(flowFramesNow) > 0) {
+            finalData$U_flow_ff_predicted_mean[i]        <- mean(U_flow_ff_predicted_t[flowFramesNow])
+            finalData$U_flow_ff_predicted_mean_frames[i] <- length(flowFramesNow)   # frames averaged
           }
 
           # U_flow_ff_predicted_mean_full (mm/s): all strike frames, negative values included. Kept as a check
@@ -3197,11 +3193,9 @@ for(i in 1:nVids) {
       # Videos where hyoid depression is longer than Ceratohyal_length in some frames (logged as warnings in skippedVids)
   print(tapply(finalData$Hyoid_beyond_ceratohyal_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE))
 
-    # U_flow_ff_predicted: the mean used (Tstart to peak predicted flow, positive frames only) vs. the checks   ### CHECK
+    # U_flow_ff_predicted: the mean used (Tstart to tmaxVel) vs. the checks   ### CHECK
   print(summary(finalData$U_flow_ff_predicted_mean))
-  print(summary(finalData$Time_flow_predicted))
-      # Share of videos where predicted flow peaks in the first frame (then the mean is that one frame), and frames averaged
-  print(mean(finalData$U_flow_ff_predicted_mean_frames == 1, na.rm = TRUE))
+      # Frames averaged. Few frames = tmaxVel comes soon after Tstart, so the mean leans on the small-gape frames
   print(summary(finalData$U_flow_ff_predicted_mean_frames))
       # Correlations with the full-strike and big-gape means. Weak correlations mean the choice of frames changes which fish have high flow
   print(corCheck(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_full))
