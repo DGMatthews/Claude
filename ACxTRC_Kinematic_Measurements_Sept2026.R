@@ -299,6 +299,21 @@ try(print(h5ls(file=fileNames[1])))
     }
 
 
+    # Value of a fitted smooth.spline at time tNow (deriv = 0, 1 or 2)
+      # NA if tNow is missing or outside the frames the spline was fit to (no extrapolation)
+    predictAt <- function(fit, tNow, deriv) {
+      if(is.na(tNow) || tNow < min(fit$x) || tNow > max(fit$x)) {
+        return(NA_real_)
+      }
+      predict(fit, x = tNow, deriv = deriv)$y
+    }
+
+    # TRUE if any of the times is inside tRange (c(first, last)). Used to decide whether a spline needs fitting for tmax or tmaxVel
+    anyInRange <- function(tTimes, tRange) {
+      any(!is.na(tTimes) & tTimes >= tRange[1] & tTimes <= tRange[2])
+    }
+
+
     # Add a row to the skipped-analysis log
       # skippedLog = the current log (skippedVids), returns the log with the new row added
       # section = which part of the analysis was skipped, reason = why
@@ -317,14 +332,16 @@ try(print(h5ls(file=fileNames[1])))
       # The spline is fit to the raw series, so velocities and Time don't depend on the zero
       # Values that depend on the zero are left NA if depression goes below -negTolerance in any visible frame (the zero must be wrong)
       # Returns a list:
-        # values: Time, visible_frac, vel_mean_visible, vel_tmax, Max, tmax, t_mean, vel_mean (NA if not calculated)
+        # values: Time, visible_frac, vel_mean_visible, vel_tmax, vel_tmaxVel, Max, tmax, tmaxVel, tmax_filled, tmaxVel_filled, t_mean, vel_mean (NA if not calculated)
+        # tTargets = c(tmax = ..., tmaxVel = ...), the two times to report values at
         # vel_t, depression_t: time series (NULL if not calculated)
         # log: reasons to add to skippedVids
-    hyoidOutputs <- function(raw_t, rest, timeSeriesNow, startPos, endPos, tmax, Tstart,
+    hyoidOutputs <- function(raw_t, rest, timeSeriesNow, startPos, endPos, tTargets, Tstart,
                              lambdaRefDerived, spanRef, negTolerance, missingMsg) {
 
-      out <- list(values = c(Time = NA_real_, visible_frac = NA_real_, vel_mean_visible = NA_real_, vel_tmax = NA_real_,
-                             Max = NA_real_, tmax = NA_real_, t_mean = NA_real_, vel_mean = NA_real_),
+      out <- list(values = c(Time = NA_real_, visible_frac = NA_real_, vel_mean_visible = NA_real_,
+                             vel_tmax = NA_real_, vel_tmaxVel = NA_real_, Max = NA_real_, tmax = NA_real_, tmaxVel = NA_real_,
+                             tmax_filled = NA_real_, tmaxVel_filled = NA_real_, t_mean = NA_real_, vel_mean = NA_real_),
                   vel_t = NULL, depression_t = NULL, log = character())
 
       goodFrames   <- which(!is.na(raw_t))
@@ -346,7 +363,8 @@ try(print(h5ls(file=fileNames[1])))
       # Fraction of Tstart-Tend frames where the hyoid was visible
       out$values["visible_frac"] <- length(strikeFrames) / length(startPos:endPos)
 
-      rawTmax <- NA_real_
+      rawAtT    <- c(tmax = NA_real_, tmaxVel = NA_real_)   # raw spline value at each target time, when it's inside the visible frames
+      rawSmooth <- NULL
 
       if(length(goodFrames) >= 10) {
 
@@ -365,12 +383,15 @@ try(print(h5ls(file=fileNames[1])))
         velFrames <- intersect(startPos:peakFrame, goodFrames)
         out$values["vel_mean_visible"] <- mean(vel_t[velFrames])
 
-        if(!is.na(tmax)) {
-          if(tmax >= timeSeriesNow[min(goodFrames)] && tmax <= timeSeriesNow[max(goodFrames)]) {
-            rawTmax <- predict(rawSmooth, x = tmax, deriv = 0)$y
-            out$values["vel_tmax"] <- predict(rawSmooth, x = tmax, deriv = 1)$y
-          } else {
-            out$log <- c(out$log, "Values at tmax not calculated: tmax outside the frames where the hyoid is visible")
+        # Values at tmax and tmaxVel from the spline, when the time is inside the visible frames
+          # Times outside them are filled after the zero is applied (below)
+        visRange <- timeSeriesNow[range(goodFrames)]
+        for(tNm in names(tTargets)) {
+          tNow <- tTargets[[tNm]]
+          if(!is.na(tNow) && tNow >= visRange[1] && tNow <= visRange[2]) {
+            rawAtT[tNm] <- predict(rawSmooth, x = tNow, deriv = 0)$y
+            out$values[paste0("vel_", tNm)]    <- predict(rawSmooth, x = tNow, deriv = 1)$y
+            out$values[paste0(tNm, "_filled")] <- 0
           }
         }
       } else {
@@ -393,8 +414,45 @@ try(print(h5ls(file=fileNames[1])))
       # Largest depression during the strike (mm)
       out$values["Max"] <- depression_t[peakFrame]
 
-      # Depression at tmax (mm). Raw spline value minus the zero, identical to fitting the spline to depression. NA if tmax wasn't calculated
-      out$values["tmax"] <- rawTmax - rest
+      # Depression and velocity at tmax and tmaxVel (mm, mm/s)
+        # Inside the visible frames: raw spline value minus the zero, identical to fitting the spline to depression
+        # Between Tstart and the first visible frame: a straight line from 0 at Tstart to the spline value at the first visible frame,
+          # the same filling the means use. Velocity = slope of that line. Likewise from the last visible frame to 0 at Tend
+        # *_filled records which (0 = spline, 1 = filled). NA if the time is outside Tstart-Tend
+      if(!is.null(rawSmooth)) {
+        Tend     <- timeSeriesNow[endPos]
+        visRange <- timeSeriesNow[range(goodFrames)]
+
+        for(tNm in names(tTargets)) {
+          tNow   <- tTargets[[tNm]]
+          velNm  <- paste0("vel_", tNm)
+          fillNm <- paste0(tNm, "_filled")
+
+          if(is.na(tNow)) {
+            next
+          }
+
+          if(!is.na(rawAtT[[tNm]])) {
+            out$values[tNm] <- rawAtT[[tNm]] - rest
+
+          } else if(tNow >= Tstart && tNow < visRange[1]) {
+            edgeNow <- predict(rawSmooth, x = visRange[1], deriv = 0)$y - rest
+            out$values[velNm]  <- edgeNow / (visRange[1] - Tstart)
+            out$values[tNm]    <- out$values[[velNm]] * (tNow - Tstart)
+            out$values[fillNm] <- 1
+
+          } else if(tNow > visRange[2] && tNow <= Tend) {
+            edgeNow <- predict(rawSmooth, x = visRange[2], deriv = 0)$y - rest
+            out$values[velNm]  <- -edgeNow / (Tend - visRange[2])
+            out$values[tNm]    <- edgeNow + out$values[[velNm]] * (tNow - visRange[2])
+            out$values[fillNm] <- 1
+          }
+        }
+
+        if(!is.na(tTargets[["tmax"]]) && is.na(out$values[["tmax"]])) {
+          out$log <- c(out$log, "Values at tmax not calculated: tmax outside Tstart-Tend")
+        }
+      }
 
       # Mean depression over Tstart-Tend (mm). 0 at Tstart/Tend where not visible, gaps filled linearly
       depressionStrike <- depression_t[startPos:endPos]
@@ -488,49 +546,89 @@ finalData <- data.frame(vidName = fileNames2,
                         Mandible_depression_t_mean = rep(NA_real_, nVids),
                         Hyoid_depression_t_mean = rep(NA_real_, nVids),
                         R_tmax = rep(NA_real_, nVids),
+                        R_tmaxVel = rep(NA_real_, nVids),
                         R_vel_tmax = rep(NA_real_, nVids),
+                        R_vel_tmaxVel = rep(NA_real_, nVids),
                         U_flow_ef_meas_tmax = rep(NA_real_, nVids),
+                        U_flow_ef_meas_tmaxVel = rep(NA_real_, nVids),
                         U_flow_ef_meas_acc_tmax = rep(NA_real_, nVids),
+                        U_flow_ef_meas_acc_tmaxVel = rep(NA_real_, nVids),
                         Protrusion_tmax = rep(NA_real_, nVids),
+                        Protrusion_tmaxVel = rep(NA_real_, nVids),
                         Protrusion_vel_tmax = rep(NA_real_, nVids),
+                        Protrusion_vel_tmaxVel = rep(NA_real_, nVids),
                         Mandible_depression_tmax = rep(NA_real_, nVids),
+                        Mandible_depression_tmaxVel = rep(NA_real_, nVids),
                         Mandible_dep_vel_tmax = rep(NA_real_, nVids),
+                        Mandible_dep_vel_tmaxVel = rep(NA_real_, nVids),
                         Mandible_angular_vel_tmax = rep(NA_real_, nVids),
+                        Mandible_angular_vel_tmaxVel = rep(NA_real_, nVids),
                         Mandible_ang_tmax = rep(NA_real_, nVids),
+                        Mandible_ang_tmaxVel = rep(NA_real_, nVids),
                         Mandible_tip_disp_tmax = rep(NA_real_, nVids),
+                        Mandible_tip_disp_tmaxVel = rep(NA_real_, nVids),
                         Mandible_tip_disp_vel_tmax = rep(NA_real_, nVids),
+                        Mandible_tip_disp_vel_tmaxVel = rep(NA_real_, nVids),
                         Mandible_tip_disp_Max = rep(NA_real_, nVids),
                         Mandible_depression_Max = rep(NA_real_, nVids),
                         Neurocranium_tip_disp_tmax = rep(NA_real_, nVids),
+                        Neurocranium_tip_disp_tmaxVel = rep(NA_real_, nVids),
                         Neurocranium_angular_vel_tmax = rep(NA_real_, nVids),
+                        Neurocranium_angular_vel_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_tip_disp_tmax = rep(NA_real_, nVids),
+                        Maxilla_tip_disp_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_linear_vel_tmax = rep(NA_real_, nVids),
+                        Maxilla_linear_vel_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_ang_tmax = rep(NA_real_, nVids),
+                        Maxilla_ang_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_angular_vel_tmax = rep(NA_real_, nVids),
+                        Maxilla_angular_vel_tmaxVel = rep(NA_real_, nVids),
                         Neurocranium_linear_vel_tmax = rep(NA_real_, nVids),
+                        Neurocranium_linear_vel_tmaxVel = rep(NA_real_, nVids),
                         Neurocranium_rotation_tmax = rep(NA_real_, nVids),
+                        Neurocranium_rotation_tmaxVel = rep(NA_real_, nVids),
                         Hyoid_depression_tmax = rep(NA_real_, nVids),
+                        Hyoid_depression_tmaxVel = rep(NA_real_, nVids),
                         Hyoid_vel_tmax = rep(NA_real_, nVids),
+                        Hyoid_vel_tmaxVel = rep(NA_real_, nVids),
+                        Hyoid_tmax_filled = rep(NA_real_, nVids),
+                        Hyoid_tmaxVel_filled = rep(NA_real_, nVids),
                         U_flow_ff_tmax = rep(NA_real_, nVids),
+                        U_flow_ff_tmaxVel = rep(NA_real_, nVids),
                         U_flow_ff_acc_tmax = rep(NA_real_, nVids),
+                        U_flow_ff_acc_tmaxVel = rep(NA_real_, nVids),
                         U_ram_tmax = rep(NA_real_, nVids),
+                        U_ram_tmaxVel = rep(NA_real_, nVids),
                         U_ram_acc_tmax = rep(NA_real_, nVids),
+                        U_ram_acc_tmaxVel = rep(NA_real_, nVids),
                         Relative_ttpg = rep(NA_real_, nVids),
                         Relative_tmax = rep(NA_real_, nVids),
+                        Relative_tmaxVel = rep(NA_real_, nVids),
                         Kinetic_Synchronization = rep(NA_real_, nVids),
                         Mandible_tip_dist_rest = rep(NA_real_, nVids),
                         Oral_theta2_tmax = rep(NA_real_, nVids),
+                        Oral_theta2_tmaxVel = rep(NA_real_, nVids),
                         Oral_theta3_tmax = rep(NA_real_, nVids),
+                        Oral_theta3_tmaxVel = rep(NA_real_, nVids),
                         Oral_theta4_tmax = rep(NA_real_, nVids),
+                        Oral_theta4_tmaxVel = rep(NA_real_, nVids),
                         Oral_KT_tmax = rep(NA_real_, nVids),
+                        Oral_KT_tmaxVel = rep(NA_real_, nVids),
                         Opercular_theta2_tmax = rep(NA_real_, nVids),
+                        Opercular_theta2_tmaxVel = rep(NA_real_, nVids),
                         Opercular_theta3_tmax = rep(NA_real_, nVids),
+                        Opercular_theta3_tmaxVel = rep(NA_real_, nVids),
                         Opercular_theta4_tmax = rep(NA_real_, nVids),
+                        Opercular_theta4_tmaxVel = rep(NA_real_, nVids),
                         Opercular_KT_tmax = rep(NA_real_, nVids),
+                        Opercular_KT_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_ang_predicted_tmax = rep(NA_real_, nVids),
+                        Maxilla_ang_predicted_tmaxVel = rep(NA_real_, nVids),
                         Mandible_ang_predicted_tmax = rep(NA_real_, nVids),
+                        Mandible_ang_predicted_tmaxVel = rep(NA_real_, nVids),
                         strikeDirection = rep(NA_real_, nVids),
                         Neurocranium_tip_disp_eye_tmax = rep(NA_real_, nVids),
+                        Neurocranium_tip_disp_eye_tmaxVel = rep(NA_real_, nVids),
                         Neurocranium_angular_vel_mean = rep(NA_real_, nVids),
                         Neurocranium_linear_vel_mean = rep(NA_real_, nVids),
                         Neurocranium_eyeNasal_stretch_max = rep(NA_real_, nVids),
@@ -540,14 +638,22 @@ finalData <- data.frame(vidName = fileNames2,
                         Maxilla_Max = rep(NA_real_, nVids),
                         Maxilla_cam_Max = rep(NA_real_, nVids),
                         Maxilla_ang_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_ang_cam_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_angular_vel_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_angular_vel_cam_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_tip_disp_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_tip_disp_cam_tmaxVel = rep(NA_real_, nVids),
                         Maxilla_linear_vel_cam_tmax = rep(NA_real_, nVids),
+                        Maxilla_linear_vel_cam_tmaxVel = rep(NA_real_, nVids),
                         Hyoid_vel_mean = rep(NA_real_, nVids),
                         Hyoid_vel_mean_visible = rep(NA_real_, nVids),
                         Hyoid_visible_frac = rep(NA_real_, nVids),
                         Hyoid_excursion_tmax_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_tmaxVel_backup = rep(NA_real_, nVids),
                         Hyoid_excursion_vel_tmax_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_vel_tmaxVel_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_tmax_filled_backup = rep(NA_real_, nVids),
+                        Hyoid_excursion_tmaxVel_filled_backup = rep(NA_real_, nVids),
                         Hyoid_excursion_t_mean_backup = rep(NA_real_, nVids),
                         Hyoid_excursion_Max_backup = rep(NA_real_, nVids),
                         Hyoid_excursion_ROM_backup = rep(NA_real_, nVids),
@@ -560,10 +666,14 @@ finalData <- data.frame(vidName = fileNames2,
                         endFrame = rep(NA_real_, nVids),
                         Hyoid_depth_source = rep(NA_character_, nVids),
                         V_buccal_vel_tmax = rep(NA_real_, nVids),
+                        V_buccal_vel_tmaxVel = rep(NA_real_, nVids),
                         V_buccal_acc_tmax = rep(NA_real_, nVids),
+                        V_buccal_acc_tmaxVel = rep(NA_real_, nVids),
                         V_buccal_Max = rep(NA_real_, nVids),
                         Buccal_width_expansion_Max = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_full = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_frames = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_bigGape = rep(NA_real_, nVids),
                         Width_hypaxial_floor_frames = rep(NA_real_, nVids),
                         Hyoid_beyond_ceratohyal_frames = rep(NA_real_, nVids),
@@ -571,7 +681,9 @@ finalData <- data.frame(vidName = fileNames2,
                         V_buccal_neuroIncluded = rep(NA, nVids),
                         U_ram_mean_frames = rep(NA_real_, nVids),
                         U_ram_body_tmax = rep(NA_real_, nVids),
+                        U_ram_body_tmaxVel = rep(NA_real_, nVids),
                         U_ram_body_acc_tmax = rep(NA_real_, nVids),
+                        U_ram_body_acc_tmaxVel = rep(NA_real_, nVids),
                         U_ram_body_mean = rep(NA_real_, nVids),
                         U_ram_body_mean_frames = rep(NA_real_, nVids),
                         strikeAxisTilt = rep(NA_real_, nVids),
@@ -580,7 +692,9 @@ finalData <- data.frame(vidName = fileNames2,
                         Lag_hyoid_gape = rep(NA_real_, nVids),
                         Lag_cranial_gape = rep(NA_real_, nVids),
                         A_tmax = rep(NA_real_, nVids),
+                        A_tmaxVel = rep(NA_real_, nVids),
                         A_vel_tmax = rep(NA_real_, nVids),
+                        A_vel_tmaxVel = rep(NA_real_, nVids),
                         A_mean = rep(NA_real_, nVids),
                         A_Max = rep(NA_real_, nVids),
                         Cov_R_Uram = rep(NA_real_, nVids),
@@ -889,8 +1003,9 @@ print(length(unique(finalData$Unique.ID)))
         Neurocranium_length        = "Neurocranium_length",      ### CHANGE
         Ceratohyal_length          = "Ceratohyal_length",        ### CHANGE
         D_head_backup              = "D_head_backup",            ### CHANGE  nasal tip to rostral urohyal tip (= tracked hyoid point) at rest, lateral view
-        Nasal_eye_AP_length        = "Nasal_eye_AP_length",      ### CHANGE  AP distance, nasal tip to eye-level landmark (caudal base of parasphenoid)
-        Hyoid_rest_AP              = "Hyoid_rest_AP",            ### CHANGE  AP distance, eye-level landmark to rostral ceratohyal tip. Positive if the tip is posterior
+        Nasal_eye_AP_length        = "Nasal_eye_AP_length",      ### CHANGE  AP distance along the Eye-Nasal line, nasal tip to eye centre
+        Hyoid_rest_AP              = "Hyoid_rest_AP",            ### CHANGE  AP distance, eye centre to rostral ceratohyal tip. Positive if the tip is posterior
+        Hyoid_rest_depth           = "Hyoid_rest_depth",         ### CHANGE  depth of the rostral ceratohyal tip below the Eye-Nasal line at rest (zero for hyoid depression)
         Ceratohyal_AP_rest         = "Ceratohyal_AP_rest",       ### CHANGE  AP distance between rostral and caudal ceratohyal tips at rest
         Ceratohyal_DV_rest         = "Ceratohyal_DV_rest",       ### CHANGE  DV distance between rostral and caudal ceratohyal tips at rest. Positive if the rostral tip is ventral
         # Oral four-bar
@@ -952,10 +1067,8 @@ print(length(unique(finalData$Unique.ID)))
     }
     
     
-    # Resting depth of the tracked Hyoid point (rostral ceratohyal tip) below the Eye-Nasal line
-      # D_head is measured to the caudal ceratohyal tips. The rostral tip sits Ceratohyal_DV_rest below them (negative = above), so the ceratohyal doesn't have to be horizontal at rest
-      # Zero point for hyoid depression (eye videos) and the vertical side of the no-eye triangle. The frustum's back face still uses D_head
-    finalData$Hyoid_rest_depth <- finalData$D_head + finalData$Ceratohyal_DV_rest
+    # Hyoid_rest_depth (from the scans, measured from the eye centre like the video) is the zero for hyoid depression (eye videos)
+      # and the vertical side of the no-eye triangle. The frustum's back face still uses D_head
 
 
     # Checks
@@ -1095,10 +1208,14 @@ print(length(unique(finalData$Unique.ID)))
   # finalData columns for each hyoid version. Names on the left match the values returned by hyoidOutputs()
   hyoidColsMain <- c(Time = "Time_hyoid", visible_frac = "Hyoid_visible_frac", vel_mean_visible = "Hyoid_vel_mean_visible",
                      vel_tmax = "Hyoid_vel_tmax", Max = "Hyoid_Max", tmax = "Hyoid_depression_tmax",
+                     vel_tmaxVel = "Hyoid_vel_tmaxVel", tmaxVel = "Hyoid_depression_tmaxVel",
+                     tmax_filled = "Hyoid_tmax_filled", tmaxVel_filled = "Hyoid_tmaxVel_filled",
                      t_mean = "Hyoid_depression_t_mean", vel_mean = "Hyoid_vel_mean")
 
   hyoidColsBackup <- c(Time = "Time_hyoid_backup", visible_frac = "Hyoid_visible_frac_backup", vel_mean_visible = "Hyoid_excursion_vel_mean_visible_backup",
                        vel_tmax = "Hyoid_excursion_vel_tmax_backup", Max = "Hyoid_excursion_Max_backup", tmax = "Hyoid_excursion_tmax_backup",
+                       vel_tmaxVel = "Hyoid_excursion_vel_tmaxVel_backup", tmaxVel = "Hyoid_excursion_tmaxVel_backup",
+                       tmax_filled = "Hyoid_excursion_tmax_filled_backup", tmaxVel_filled = "Hyoid_excursion_tmaxVel_filled_backup",
                        t_mean = "Hyoid_excursion_t_mean_backup", vel_mean = "Hyoid_excursion_vel_mean_backup")
   
   
@@ -1454,13 +1571,13 @@ for(i in 1:nVids) {
           }
           finalData$R_t_mean[i] <- R_t_mean
       
-            if(!is.na(finalData$tmax[i])) {
+            if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
       
               goodFrames_gape <- which(!is.na(R_t))
                 
                 
                 #Check if there are enough frames for fitting, and that tmax is within the frames that have gape data
-                if(length(goodFrames_gape) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_gape)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_gape)]) {
+                if(length(goodFrames_gape) >= 10 && anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_gape)])) {
                   
                     # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
                     spanNow   <- max(goodFrames_gape) - min(goodFrames_gape)
@@ -1469,10 +1586,12 @@ for(i in 1:nVids) {
                     R_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_gape], y = R_t[goodFrames_gape], lambda = lambdaNow)
                     
                     # R_tmax (mm)
-                    finalData$R_tmax[i] <- predict(R_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                    finalData$R_tmax[i]    <- predictAt(R_t_smooth, finalData$tmax[i], 0)
+                    finalData$R_tmaxVel[i] <- predictAt(R_t_smooth, finalData$tmaxVel[i], 0)
                     
                     # R_vel_tmax (mm/s)
-                    finalData$R_vel_tmax[i] <- predict(R_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                    finalData$R_vel_tmax[i]    <- predictAt(R_t_smooth, finalData$tmax[i], 1)
+                    finalData$R_vel_tmaxVel[i] <- predictAt(R_t_smooth, finalData$tmaxVel[i], 1)
                 }
           }
           
@@ -1485,6 +1604,7 @@ for(i in 1:nVids) {
         #Relative_tmax
         
         finalData$Relative_tmax[i] <- (finalData$tmax[i] - finalData$Tstart[i]) / finalData$Ttotal[i]
+        finalData$Relative_tmaxVel[i] <- (finalData$tmaxVel[i] - finalData$Tstart[i]) / finalData$Ttotal[i]
         
         
         
@@ -1533,6 +1653,8 @@ for(i in 1:nVids) {
             # A_tmax (mm^2) and A_vel_tmax (mm^2/s). NA if R wasn't calculated at tmax
             finalData$A_tmax[i]     <- gapeAreaConst * finalData$R_tmax[i]
             finalData$A_vel_tmax[i] <- gapeAreaConst * finalData$R_vel_tmax[i]
+            finalData$A_tmaxVel[i]     <- gapeAreaConst * finalData$R_tmaxVel[i]
+            finalData$A_vel_tmaxVel[i] <- gapeAreaConst * finalData$R_vel_tmaxVel[i]
 
             # A_mean (mm^2). NA if there's no Tstart
             finalData$A_mean[i] <- gapeAreaConst * finalData$R_t_mean[i]
@@ -1584,13 +1706,13 @@ for(i in 1:nVids) {
                   finalData$Protrusion_Max[i] <- Protrusion_Max
               }
             
-                    if(!is.na(finalData$tmax[i])) {
+                    if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
               
                         goodFrames_prot <- which(!is.na(Protrusion_t))
                         
                         
                         #Check if there are enough frames for fitting, and that tmax is within the frames that have protrusion data
-                        if(length(goodFrames_prot) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_prot)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_prot)]) {
+                        if(length(goodFrames_prot) >= 10 && anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_prot)])) {
                       
                             # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
                             spanNow   <- max(goodFrames_prot) - min(goodFrames_prot)
@@ -1599,10 +1721,12 @@ for(i in 1:nVids) {
                             Protrusion_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_prot], y = Protrusion_t[goodFrames_prot], lambda = lambdaNow)
                             
                             # Protrusion_tmax (mm)
-                            finalData$Protrusion_tmax[i] <- predict(Protrusion_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                            finalData$Protrusion_tmax[i]    <- predictAt(Protrusion_t_smooth, finalData$tmax[i], 0)
+                            finalData$Protrusion_tmaxVel[i] <- predictAt(Protrusion_t_smooth, finalData$tmaxVel[i], 0)
                             
                             # Protrusion_vel_tmax (mm/s)
-                            finalData$Protrusion_vel_tmax[i] <- predict(Protrusion_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                            finalData$Protrusion_vel_tmax[i]    <- predictAt(Protrusion_t_smooth, finalData$tmax[i], 1)
+                            finalData$Protrusion_vel_tmaxVel[i] <- predictAt(Protrusion_t_smooth, finalData$tmaxVel[i], 1)
                         }
                     }
           }
@@ -1660,12 +1784,12 @@ for(i in 1:nVids) {
 
             
 
-                    if(!is.na(finalData$tmax[i])) {
+                    if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
 
                         goodFrames_mandTip <- which(!is.na(Mandible_tip_disp_t))
 
                         #Check if there are enough frames for fitting, and that tmax is within the frames that have mandible data
-                        if(length(goodFrames_mandTip) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_mandTip)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_mandTip)]) {
+                        if(length(goodFrames_mandTip) >= 10 && anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_mandTip)])) {
 
                             # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
                             spanNow   <- max(goodFrames_mandTip) - min(goodFrames_mandTip)
@@ -1674,10 +1798,12 @@ for(i in 1:nVids) {
                             Mandible_tip_disp_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_mandTip], y = Mandible_tip_disp_t[goodFrames_mandTip], lambda = lambdaNow)
 
                             # Mandible_tip_disp_tmax (mm)
-                            finalData$Mandible_tip_disp_tmax[i] <- predict(Mandible_tip_disp_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                            finalData$Mandible_tip_disp_tmax[i]    <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmax[i], 0)
+                            finalData$Mandible_tip_disp_tmaxVel[i] <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmaxVel[i], 0)
 
                             # Mandible_tip_disp_vel_tmax (mm/s)
-                            finalData$Mandible_tip_disp_vel_tmax[i] <- predict(Mandible_tip_disp_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                            finalData$Mandible_tip_disp_vel_tmax[i]    <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmax[i], 1)
+                            finalData$Mandible_tip_disp_vel_tmaxVel[i] <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmaxVel[i], 1)
                         }
                     }
 
@@ -1735,12 +1861,12 @@ for(i in 1:nVids) {
                 }
 
 
-                    if(!is.na(finalData$tmax[i])) {
+                    if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
 
                         goodFrames_mandAng <- which(!is.na(Mandible_ang_t))
 
                         #Check if there are enough frames for fitting, and that tmax is within the frames that have mandible data
-                        if(length(goodFrames_mandAng) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_mandAng)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_mandAng)]) {
+                        if(length(goodFrames_mandAng) >= 10 && anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_mandAng)])) {
 
                             # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
                             spanNow   <- max(goodFrames_mandAng) - min(goodFrames_mandAng)
@@ -1749,17 +1875,21 @@ for(i in 1:nVids) {
                             Mandible_ang_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_mandAng], y = Mandible_ang_t[goodFrames_mandAng], lambda = lambdaNow)
 
                             # Mandible_ang_tmax (radians)
-                            finalData$Mandible_ang_tmax[i] <- predict(Mandible_ang_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                            finalData$Mandible_ang_tmax[i]    <- predictAt(Mandible_ang_t_smooth, finalData$tmax[i], 0)
+                            finalData$Mandible_ang_tmaxVel[i] <- predictAt(Mandible_ang_t_smooth, finalData$tmaxVel[i], 0)
 
                             # Mandible_angular_vel_tmax (radians/s)
-                            finalData$Mandible_angular_vel_tmax[i] <- predict(Mandible_ang_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                            finalData$Mandible_angular_vel_tmax[i]    <- predictAt(Mandible_ang_t_smooth, finalData$tmax[i], 1)
+                            finalData$Mandible_angular_vel_tmaxVel[i] <- predictAt(Mandible_ang_t_smooth, finalData$tmaxVel[i], 1)
 
                             # Depression and its velocity come from the angle, so the SEM equations are exact identities
                             # Mandible_depression_tmax (mm)
                             finalData$Mandible_depression_tmax[i] <- jawR * sin(finalData$Mandible_ang_tmax[i])
+                            finalData$Mandible_depression_tmaxVel[i] <- jawR * sin(finalData$Mandible_ang_tmaxVel[i])
 
                             # Mandible_dep_vel_tmax (mm/s)
                             finalData$Mandible_dep_vel_tmax[i] <- jawR * finalData$Mandible_angular_vel_tmax[i] * cos(finalData$Mandible_ang_tmax[i])
+                            finalData$Mandible_dep_vel_tmaxVel[i] <- jawR * finalData$Mandible_angular_vel_tmaxVel[i] * cos(finalData$Mandible_ang_tmaxVel[i])
                         }
                     }
               }
@@ -1802,6 +1932,7 @@ for(i in 1:nVids) {
         # Oral 4-bar at tmax #
         ######################
           # Input angle at tmax = resting input angle + measured mandible rotation
+          # Same again at tmaxVel (second block)
         
           if(!is.na(finalData$Mandible_ang_tmax[i]) && !is.na(finalData$Oral_theta2_rest[i])) {
             
@@ -1819,6 +1950,24 @@ for(i in 1:nVids) {
             
             # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest)
             finalData$Maxilla_ang_predicted_tmax[i] <- wrapAngle(finalData$Oral_theta3_tmax[i] - finalData$Oral_theta3_rest[i])
+          }
+
+          if(!is.na(finalData$Mandible_ang_tmaxVel[i]) && !is.na(finalData$Oral_theta2_rest[i])) {
+            
+            oralIn  <- finalData$Mandible_input_length[i]
+            oralCp  <- finalData$Maxilla_length[i]
+            oralOut <- finalData$Maxilla_palatine_length[i]
+            oralFx  <- finalData$Oral_fixed_length[i]
+            
+            finalData$Oral_theta2_tmaxVel[i] <- finalData$Oral_theta2_rest[i] + oralOpenSign * finalData$Mandible_ang_tmaxVel[i]
+            finalData$Oral_theta3_tmaxVel[i] <- fourBarTheta3(finalData$Oral_theta2_tmaxVel[i], oralIn, oralCp, oralOut, oralFx)
+            finalData$Oral_theta4_tmaxVel[i] <- fourBarTheta4(finalData$Oral_theta2_tmaxVel[i], oralIn, oralCp, oralOut, oralFx)
+            
+            # Oral_KT_tmax (instantaneous d theta3 / d theta2)
+            finalData$Oral_KT_tmaxVel[i] <- fourBarKTinst(finalData$Oral_theta2_tmaxVel[i], oralIn, oralCp, oralOut, oralFx, output = "theta3")
+            
+            # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest)
+            finalData$Maxilla_ang_predicted_tmaxVel[i] <- wrapAngle(finalData$Oral_theta3_tmaxVel[i] - finalData$Oral_theta3_rest[i])
           }
 
           
@@ -1967,29 +2116,34 @@ for(i in 1:nVids) {
                   }
 
 
-                  if(!is.na(finalData$tmax[i])) {
+                  if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
 
                       #Check that tmax is within the frames that have neurocranium data
-                      if(finalData$tmax[i] >= timeSeriesNow[min(goodFrames_neuro)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_neuro)]) {
+                      if(anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_neuro)])) {
 
                           # Neurocranium_rotation_tmax (radians)
-                          finalData$Neurocranium_rotation_tmax[i] <- predict(Neurocranium_rotation_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                          finalData$Neurocranium_rotation_tmax[i]    <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmax[i], 0)
+                          finalData$Neurocranium_rotation_tmaxVel[i] <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmaxVel[i], 0)
 
                           # Neurocranium_angular_vel_tmax (radians/s)
-                          finalData$Neurocranium_angular_vel_tmax[i] <- predict(Neurocranium_rotation_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                          finalData$Neurocranium_angular_vel_tmax[i]    <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmax[i], 1)
+                          finalData$Neurocranium_angular_vel_tmaxVel[i] <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmaxVel[i], 1)
 
                           # Tip displacement and linear velocity come from the rotation spline, so the SEM equations are exact identities
                             # NA if no scan value
                           # Neurocranium_tip_disp_tmax (mm)
                           finalData$Neurocranium_tip_disp_tmax[i] <- neuroL * finalData$Neurocranium_rotation_tmax[i]
+                          finalData$Neurocranium_tip_disp_tmaxVel[i] <- neuroL * finalData$Neurocranium_rotation_tmaxVel[i]
 
                           # Neurocranium_linear_vel_tmax (mm/s)
                           finalData$Neurocranium_linear_vel_tmax[i] <- neuroL * finalData$Neurocranium_angular_vel_tmax[i]
+                          finalData$Neurocranium_linear_vel_tmaxVel[i] <- neuroL * finalData$Neurocranium_angular_vel_tmaxVel[i]
 
 
                           # Neurocranium_tip_disp_eye_tmax (mm). Separate spline, same frames and smoothing
                           Neurocranium_tip_disp_eye_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_neuro], y = Neurocranium_tip_disp_eye_t[goodFrames_neuro], lambda = lambdaNow)
-                          finalData$Neurocranium_tip_disp_eye_tmax[i] <- predict(Neurocranium_tip_disp_eye_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                          finalData$Neurocranium_tip_disp_eye_tmax[i]    <- predictAt(Neurocranium_tip_disp_eye_t_smooth, finalData$tmax[i], 0)
+                          finalData$Neurocranium_tip_disp_eye_tmaxVel[i] <- predictAt(Neurocranium_tip_disp_eye_t_smooth, finalData$tmaxVel[i], 0)
                       }
                   }
               }
@@ -2087,12 +2241,12 @@ for(i in 1:nVids) {
 
             ##### Camera-frame values at tmax
 
-              if(!is.na(finalData$tmax[i])) {
+              if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
 
                   goodFrames_maxCam <- which(!is.na(Maxilla_ang_cam_t))
 
                   #Check if there are enough frames for fitting, and that tmax is within the frames that have maxilla data
-                  if(length(goodFrames_maxCam) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_maxCam)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_maxCam)]) {
+                  if(length(goodFrames_maxCam) >= 10 && anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_maxCam)])) {
 
                       # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
                       spanNow   <- max(goodFrames_maxCam) - min(goodFrames_maxCam)
@@ -2101,19 +2255,23 @@ for(i in 1:nVids) {
                       Maxilla_ang_cam_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_maxCam], y = Maxilla_ang_cam_t[goodFrames_maxCam], lambda = lambdaNow)
 
                       # Maxilla_ang_cam_tmax (radians)
-                      finalData$Maxilla_ang_cam_tmax[i] <- predict(Maxilla_ang_cam_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                      finalData$Maxilla_ang_cam_tmax[i]    <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmax[i], 0)
+                      finalData$Maxilla_ang_cam_tmaxVel[i] <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmaxVel[i], 0)
 
                       # Maxilla_angular_vel_cam_tmax (radians/s)
-                      finalData$Maxilla_angular_vel_cam_tmax[i] <- predict(Maxilla_ang_cam_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                      finalData$Maxilla_angular_vel_cam_tmax[i]    <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmax[i], 1)
+                      finalData$Maxilla_angular_vel_cam_tmaxVel[i] <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmaxVel[i], 1)
 
 
                       Maxilla_tip_disp_cam_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_maxCam], y = Maxilla_tip_disp_cam_t[goodFrames_maxCam], lambda = lambdaNow)
 
                       # Maxilla_tip_disp_cam_tmax (mm)
-                      finalData$Maxilla_tip_disp_cam_tmax[i] <- predict(Maxilla_tip_disp_cam_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                      finalData$Maxilla_tip_disp_cam_tmax[i]    <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmax[i], 0)
+                      finalData$Maxilla_tip_disp_cam_tmaxVel[i] <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmaxVel[i], 0)
 
                       # Maxilla_linear_vel_cam_tmax (mm/s)
-                      finalData$Maxilla_linear_vel_cam_tmax[i] <- predict(Maxilla_tip_disp_cam_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                      finalData$Maxilla_linear_vel_cam_tmax[i]    <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmax[i], 1)
+                      finalData$Maxilla_linear_vel_cam_tmaxVel[i] <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmaxVel[i], 1)
                   }
               }
 
@@ -2154,12 +2312,12 @@ for(i in 1:nVids) {
 
                 ##### Skull-frame values at tmax
 
-                  if(!is.na(finalData$tmax[i])) {
+                  if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
 
                       goodFrames_max <- which(!is.na(Maxilla_ang_t))
 
                       #Check if there are enough frames for fitting, and that tmax is within the frames that have maxilla and eye data
-                      if(length(goodFrames_max) >= 10 && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_max)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_max)]) {
+                      if(length(goodFrames_max) >= 10 && anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_max)])) {
 
                           # Same lambda scaling as the coordinate smoothing, based on the frame span being fit
                           spanNow   <- max(goodFrames_max) - min(goodFrames_max)
@@ -2168,19 +2326,23 @@ for(i in 1:nVids) {
                           Maxilla_ang_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_max], y = Maxilla_ang_t[goodFrames_max], lambda = lambdaNow)
 
                           # Maxilla_ang_tmax (radians)
-                          finalData$Maxilla_ang_tmax[i] <- predict(Maxilla_ang_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                          finalData$Maxilla_ang_tmax[i]    <- predictAt(Maxilla_ang_t_smooth, finalData$tmax[i], 0)
+                          finalData$Maxilla_ang_tmaxVel[i] <- predictAt(Maxilla_ang_t_smooth, finalData$tmaxVel[i], 0)
 
                           # Maxilla_angular_vel_tmax (radians/s)
-                          finalData$Maxilla_angular_vel_tmax[i] <- predict(Maxilla_ang_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                          finalData$Maxilla_angular_vel_tmax[i]    <- predictAt(Maxilla_ang_t_smooth, finalData$tmax[i], 1)
+                          finalData$Maxilla_angular_vel_tmaxVel[i] <- predictAt(Maxilla_ang_t_smooth, finalData$tmaxVel[i], 1)
 
 
                           Maxilla_tip_disp_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_max], y = Maxilla_tip_disp_t[goodFrames_max], lambda = lambdaNow)
 
                           # Maxilla_tip_disp_tmax (mm)
-                          finalData$Maxilla_tip_disp_tmax[i] <- predict(Maxilla_tip_disp_t_smooth, x = finalData$tmax[i], deriv = 0)$y
+                          finalData$Maxilla_tip_disp_tmax[i]    <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmax[i], 0)
+                          finalData$Maxilla_tip_disp_tmaxVel[i] <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmaxVel[i], 0)
 
                           # Maxilla_linear_vel_tmax (mm/s)
-                          finalData$Maxilla_linear_vel_tmax[i] <- predict(Maxilla_tip_disp_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                          finalData$Maxilla_linear_vel_tmax[i]    <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmax[i], 1)
+                          finalData$Maxilla_linear_vel_tmaxVel[i] <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmaxVel[i], 1)
                       }
                   }
               }
@@ -2226,7 +2388,7 @@ for(i in 1:nVids) {
 
         # Hyoid landmark = rostral tip of the ceratohyal, seen through the skin (joined to the rostral tip of the urohyal, so the two are treated as the same point)
           # Only visible mid-strike, so resting positions come from the scans
-        # Main version (Hyoid_*): dorsoventral depth below the Eye-Nasal line, minus Hyoid_rest_depth (D_head + Ceratohyal_DV_rest)
+        # Main version (Hyoid_*): dorsoventral depth below the Eye-Nasal line, minus Hyoid_rest_depth (from the scans)
           # Videos with the eye: measured here, in the skull frame (line taken from the same frame, so neurocranium rotation is already removed)
           # Videos without the eye: calculated after the loop from the Nasal-Hyoid distance with the triangle and the pooled retraction ratio
           # Hyoid_depth_source records which ("eye" or "triangle")
@@ -2291,7 +2453,7 @@ for(i in 1:nVids) {
 
             for(hv in hyoidVersions) {
 
-              hyOut <- hyoidOutputs(hv$raw_t, hv$rest, timeSeriesNow, startPos, endPos, finalData$tmax[i], finalData$Tstart[i],
+              hyOut <- hyoidOutputs(hv$raw_t, hv$rest, timeSeriesNow, startPos, endPos, c(tmax = finalData$tmax[i], tmaxVel = finalData$tmaxVel[i]), finalData$Tstart[i],
                                     lambdaRefDerived, spanRef, hyoidNegTolerance, hv$missing)
 
               # Save values and time series
@@ -2443,13 +2605,15 @@ for(i in 1:nVids) {
 
                   # Values at tmax
                     # x_mouth has the same frames as gape, so a tmax outside the frames is already logged in the Gape section
-                  if(!is.na(finalData$tmax[i]) && finalData$tmax[i] >= timeSeriesNow[min(goodFrames_mouth)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_mouth)]) {
+                  if(anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_mouth)])) {
 
                       # U_ram_tmax (mm/s)
-                      finalData$U_ram_tmax[i] <- predict(x_mouth_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                      finalData$U_ram_tmax[i]    <- predictAt(x_mouth_t_smooth, finalData$tmax[i], 1)
+                      finalData$U_ram_tmaxVel[i] <- predictAt(x_mouth_t_smooth, finalData$tmaxVel[i], 1)
 
                       # U_ram_acc_tmax (mm/s^2)
-                      finalData$U_ram_acc_tmax[i] <- predict(x_mouth_t_smooth, x = finalData$tmax[i], deriv = 2)$y
+                      finalData$U_ram_acc_tmax[i]    <- predictAt(x_mouth_t_smooth, finalData$tmax[i], 2)
+                      finalData$U_ram_acc_tmaxVel[i] <- predictAt(x_mouth_t_smooth, finalData$tmaxVel[i], 2)
                   }
 
               } else {
@@ -2491,16 +2655,19 @@ for(i in 1:nVids) {
                   }
 
                   # Values at tmax
-                  if(!is.na(finalData$tmax[i])) {
-                    if(finalData$tmax[i] >= timeSeriesNow[min(goodFrames_nasalRam)] && finalData$tmax[i] <= timeSeriesNow[max(goodFrames_nasalRam)]) {
+                  if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
+                    if(anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeSeriesNow[range(goodFrames_nasalRam)])) {
 
                         # U_ram_body_tmax (mm/s)
-                        finalData$U_ram_body_tmax[i] <- predict(x_nasal_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+                        finalData$U_ram_body_tmax[i]    <- predictAt(x_nasal_t_smooth, finalData$tmax[i], 1)
+                        finalData$U_ram_body_tmaxVel[i] <- predictAt(x_nasal_t_smooth, finalData$tmaxVel[i], 1)
 
                         # U_ram_body_acc_tmax (mm/s^2)
-                        finalData$U_ram_body_acc_tmax[i] <- predict(x_nasal_t_smooth, x = finalData$tmax[i], deriv = 2)$y
+                        finalData$U_ram_body_acc_tmax[i]    <- predictAt(x_nasal_t_smooth, finalData$tmax[i], 2)
+                        finalData$U_ram_body_acc_tmaxVel[i] <- predictAt(x_nasal_t_smooth, finalData$tmaxVel[i], 2)
 
-                    } else {
+                    }
+                    if(!is.na(finalData$tmax[i]) && is.na(finalData$U_ram_body_tmax[i])) {
                         skippedVids <- addSkip(skippedVids, fileNames2[i], "Ram body", "Values at tmax not calculated: tmax outside tracked Nasal frames")
                     }
                   }
@@ -2520,6 +2687,7 @@ for(i in 1:nVids) {
         # Opercular 4-bar at tmax #
         ###########################
           # Input angle at tmax = resting input angle + measured neurocranium rotation (proxy for opercular rotation)
+          # Same again at tmaxVel (second block)
         
           if(!is.na(finalData$Neurocranium_rotation_tmax[i]) && !is.na(finalData$Opercular_theta2_rest[i])) {
             
@@ -2537,6 +2705,24 @@ for(i in 1:nVids) {
             
             # Mandible_ang_predicted_tmax (radians, change in theta4 from rest)
             finalData$Mandible_ang_predicted_tmax[i] <- wrapAngle(finalData$Opercular_theta4_tmax[i] - finalData$Opercular_theta4_rest[i])
+          }
+
+          if(!is.na(finalData$Neurocranium_rotation_tmaxVel[i]) && !is.na(finalData$Opercular_theta2_rest[i])) {
+            
+            operIn  <- finalData$Operculum_length[i]
+            operCp  <- finalData$IOP_link_length[i]
+            operOut <- finalData$RA_process_length[i]
+            operFx  <- finalData$Opercular_fixed_length[i]
+            
+            finalData$Opercular_theta2_tmaxVel[i] <- finalData$Opercular_theta2_rest[i] + opercularOpenSign * finalData$Neurocranium_rotation_tmaxVel[i]
+            finalData$Opercular_theta3_tmaxVel[i] <- fourBarTheta3(finalData$Opercular_theta2_tmaxVel[i], operIn, operCp, operOut, operFx)
+            finalData$Opercular_theta4_tmaxVel[i] <- fourBarTheta4(finalData$Opercular_theta2_tmaxVel[i], operIn, operCp, operOut, operFx)
+            
+            # Opercular_KT_tmax (instantaneous d theta4 / d theta2)
+            finalData$Opercular_KT_tmaxVel[i] <- fourBarKTinst(finalData$Opercular_theta2_tmaxVel[i], operIn, operCp, operOut, operFx, output = "theta4")
+            
+            # Mandible_ang_predicted_tmax (radians, change in theta4 from rest)
+            finalData$Mandible_ang_predicted_tmaxVel[i] <- wrapAngle(finalData$Opercular_theta4_tmaxVel[i] - finalData$Opercular_theta4_rest[i])
           }
           
 
@@ -2600,7 +2786,7 @@ for(i in 1:nVids) {
     }
 
     buccalCols <- c("V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
-                    "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
+                    "U_flow_ff_predicted_mean_full", "U_flow_ff_predicted_mean_frames", "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
                     "Hyoid_beyond_ceratohyal_frames")
     for(colNow in buccalCols) {
       finalData[[colNow]][] <- NA
@@ -2668,7 +2854,7 @@ for(i in 1:nVids) {
   ##### Triangle depth for videos without the eye
     # Tracked Nasal-Hyoid distance d satisfies d^2 = (a + beta*h)^2 + (Hyoid_rest_depth + h)^2
       # h = depression, a = Nasal_eye_AP_length + Hyoid_rest_AP (resting AP distance from the nasal tip to the hyoid)
-      # Hyoid_rest_depth = D_head + Ceratohyal_DV_rest (resting depth of the rostral ceratohyal tip)
+      # Hyoid_rest_depth = resting depth of the rostral ceratohyal tip below the Eye-Nasal line (from the scans)
     # Quadratic in h: (1 + beta^2) h^2 + 2(a*beta + Hyoid_rest_depth) h + (a^2 + Hyoid_rest_depth^2 - d^2) = 0
       # The + root is the physical one (it's 0 at rest)
     # Retraction = beta * h
@@ -2711,7 +2897,7 @@ for(i in 1:nVids) {
       hTri     <- (-quadB + sqrt(discNow)) / (2 * quadA)
       depthTri <- dHeadNow + hTri
 
-      hyOut <- hyoidOutputs(depthTri, dHeadNow, timeNow, finalData$startFrame[i], finalData$endFrame[i], finalData$tmax[i], finalData$Tstart[i],
+      hyOut <- hyoidOutputs(depthTri, dHeadNow, timeNow, finalData$startFrame[i], finalData$endFrame[i], c(tmax = finalData$tmax[i], tmaxVel = finalData$tmaxVel[i]), finalData$Tstart[i],
                             lambdaRefDerived, spanRef, hyoidNegTolerance, "Hyoid and Nasal never both present")
 
       # Save into the main hyoid columns
@@ -2918,8 +3104,16 @@ for(i in 1:nVids) {
           U_flow_ff_predicted_t <- V_buccal_vel_t / areaNow
           finalTimeSeriesData$U_flow_ff_predicted_t[1, framesNow, i] <- U_flow_ff_predicted_t
 
-          # U_flow_ff_predicted_mean (mm/s): all strike frames
-          finalData$U_flow_ff_predicted_mean[i] <- mean(U_flow_ff_predicted_t)
+          # U_flow_ff_predicted_mean (mm/s): all frames from Tstart to tmaxVel (time of peak measured flow velocity), negative values included
+            # NA if tmaxVel is missing or outside Tstart-Tend
+          flowFramesNow <- which(timeNow <= finalData$tmaxVel[i])
+          if(!is.na(finalData$tmaxVel[i]) && finalData$tmaxVel[i] <= timeNow[nStrike] && length(flowFramesNow) > 0) {
+            finalData$U_flow_ff_predicted_mean[i]        <- mean(U_flow_ff_predicted_t[flowFramesNow])
+            finalData$U_flow_ff_predicted_mean_frames[i] <- length(flowFramesNow)   # frames averaged
+          }
+
+          # U_flow_ff_predicted_mean_full (mm/s): all strike frames, negative values included. Kept as a check
+          finalData$U_flow_ff_predicted_mean_full[i] <- mean(U_flow_ff_predicted_t)
 
           # U_flow_ff_predicted_mean_bigGape (mm/s): only frames with A >= uFlowAreaFrac * A_Max, so small gapes can't dominate
           bigGapeFrames <- which(areaNow >= uFlowAreaFrac * finalData$A_Max[i])
@@ -2928,16 +3122,19 @@ for(i in 1:nVids) {
           }
 
           # Values at tmax
-          if(!is.na(finalData$tmax[i])) {
-            if(finalData$tmax[i] >= timeNow[1] && finalData$tmax[i] <= timeNow[nStrike]) {
+          if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
+            if(anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeNow[c(1, nStrike)])) {
 
               # V_buccal_vel_tmax (mm^3/s)
-              finalData$V_buccal_vel_tmax[i] <- predict(V_buccal_t_smooth, x = finalData$tmax[i], deriv = 1)$y
+              finalData$V_buccal_vel_tmax[i]    <- predictAt(V_buccal_t_smooth, finalData$tmax[i], 1)
+              finalData$V_buccal_vel_tmaxVel[i] <- predictAt(V_buccal_t_smooth, finalData$tmaxVel[i], 1)
 
               # V_buccal_acc_tmax (mm^3/s^2)
-              finalData$V_buccal_acc_tmax[i] <- predict(V_buccal_t_smooth, x = finalData$tmax[i], deriv = 2)$y
+              finalData$V_buccal_acc_tmax[i]    <- predictAt(V_buccal_t_smooth, finalData$tmax[i], 2)
+              finalData$V_buccal_acc_tmaxVel[i] <- predictAt(V_buccal_t_smooth, finalData$tmaxVel[i], 2)
 
-            } else {
+            }
+            if(!is.na(finalData$tmax[i]) && is.na(finalData$V_buccal_vel_tmax[i])) {
               skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Values at tmax not calculated: tmax outside Tstart-Tend")
             }
           }
@@ -2975,7 +3172,7 @@ for(i in 1:nVids) {
 
     # Scan consistency, one row per fish
   scanRowsNow <- !duplicated(finalData$Unique.ID)
-      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. Should be close (Hyoid_rest_depth = D_head + Ceratohyal_DV_rest)
+      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. ~0 by construction now that both come from the same scan frame (a check that the columns line up)
   print(summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$Hyoid_rest_depth^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow]))
       # Resting ceratohyal half-width from the bar vs. W_head/2. Should be close to 0
   print(summary(sqrt(finalData$Ceratohyal_length^2 - finalData$Ceratohyal_AP_rest^2 - finalData$Ceratohyal_DV_rest^2)[scanRowsNow] - finalData$W_head[scanRowsNow]/2))
@@ -2996,9 +3193,12 @@ for(i in 1:nVids) {
       # Videos where hyoid depression is longer than Ceratohyal_length in some frames (logged as warnings in skippedVids)
   print(tapply(finalData$Hyoid_beyond_ceratohyal_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE))
 
-    # Are small gapes dominating U_flow_ff_predicted?   ### CHECK
-      # Ratio far from 1, or a weak correlation, means the frames near Tstart/Tend (small A) are driving the full-strike mean
-  print(summary(finalData$U_flow_ff_predicted_mean / finalData$U_flow_ff_predicted_mean_bigGape))
+    # U_flow_ff_predicted: the mean used (Tstart to tmaxVel) vs. the checks   ### CHECK
+  print(summary(finalData$U_flow_ff_predicted_mean))
+      # Frames averaged. Few frames = tmaxVel comes soon after Tstart, so the mean leans on the small-gape frames
+  print(summary(finalData$U_flow_ff_predicted_mean_frames))
+      # Correlations with the full-strike and big-gape means. Weak correlations mean the choice of frames changes which fish have high flow
+  print(corCheck(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_full))
   print(corCheck(finalData$U_flow_ff_predicted_mean, finalData$U_flow_ff_predicted_mean_bigGape))     
         
         

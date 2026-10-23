@@ -9,7 +9,9 @@
 
   # Skull frame (same baseline the video uses):
     # Left-right axis = average direction of the 4 left-to-right landmark pairs (tooth row, jaw joints, nasals, caudal ceratohyals)
-    # Anteroposterior (AP) axis = nasal tip (L) to caudal base of parasphenoid (the scan version of the Eye-Nasal line), with any left-right part removed. Positive = posterior
+    # Anteroposterior (AP) axis = nasal tip (L) to the eye centre (midpoint of the two orbit landmarks), the same Eye-Nasal line the video uses,
+      # with any left-right part removed. Positive = posterior
+      # Files without the orbit landmarks (27 points) use the parasphenoid instead for the side view, and the AP/DV hyoid values are left NA
     # Dorsoventral (DV) axis = perpendicular to both. Positive = ventral
     # Side view = the skull's midline plane (AP and DV axes), which is what the camera sees
 
@@ -63,7 +65,7 @@ rm(list=ls())
   mouthOpenCols <- c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest",
                      "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg",
                      "Mandible_input_length", "Mandible_input_length_3D")
-  hyoidRestCols <- c("D_head", "D_head_backup", "D_head_backup_3D", "Hyoid_rest_AP",
+  hyoidRestCols <- c("D_head", "D_head_backup", "D_head_backup_3D", "Hyoid_rest_AP", "Hyoid_rest_depth",
                      "Ceratohyal_AP_rest", "Ceratohyal_DV_rest", "Ceratohyal_half_width_check", "W_head")
 
   # Landmark numbers (position in the file), from List_of_landmarks.docx
@@ -93,8 +95,11 @@ rm(list=ls())
                ceratoRost   = 24,   # Rostral tip ceratohyal – L (= tracked Hyoid point)
                ceratoCaudL  = 25,   # Caudal tip of ceratohyal – L
                ceratoCaudR  = 26,   # Caudal tip of ceratohyal – R
-               parasph      = 27)   # Caudal base of parasphenoid (= eye-level landmark)
-  nLandmarks <- 27
+               parasph      = 27,   # Caudal base of parasphenoid
+               orbitA       = 28,   # Orbit rim, one side of the eye – L
+               orbitB       = 29)   # Orbit rim, opposite side of the eye – L (eye centre = midpoint of 28 and 29, the point tracked as Eye)
+  nLandmarks <- 29
+  nLandmarksNoEye <- 27   # files from before the orbit landmarks were added. Read, with 28 and 29 as NA
 
   # Soft-tissue files are named <specimen>_<code>.mrk.json. Code = name in the output
   softCodes <- c(Epaxial   = "Epaxial_CSA_crest",        ### CHECK  Epaxial   = at the highest point of the supraoccipital crest
@@ -114,20 +119,24 @@ rm(list=ls())
 #  Define functions #
 #####################
 
-    # Read all landmarks from a Slicer .mrk.json file, as a 27 x 3 matrix (rows = landmark number)
+    # Read all landmarks from a Slicer .mrk.json file, as a 29 x 3 matrix (rows = landmark number)
+      # A file with only the first 27 points gets NA for the orbit landmarks
       # Landmark ids and labels aren't used, only the order of the points
       # Points not marked "defined" (skipped or missing in Slicer) are returned as NA
     readLandmarks <- function(filePath) {
 
       controlPoints <- fromJSON(filePath)$markups$controlPoints[[1]]
 
-      if(nrow(controlPoints) != nLandmarks) {
-        stop(nrow(controlPoints), " points instead of ", nLandmarks, " in: ", filePath)
+      if(!(nrow(controlPoints) %in% c(nLandmarks, nLandmarksNoEye))) {
+        stop(nrow(controlPoints), " points instead of ", nLandmarks, " (or ", nLandmarksNoEye, " without the orbit) in: ", filePath)
       }
 
       pts <- do.call(rbind, controlPoints$position)
       if(!is.null(controlPoints$positionStatus)) {
         pts[controlPoints$positionStatus != "defined", ] <- NA
+      }
+      if(nrow(pts) < nLandmarks) {
+        pts <- rbind(pts, matrix(NA_real_, nLandmarks - nrow(pts), 3))
       }
       pts
     }
@@ -219,7 +228,7 @@ rm(list=ls())
     # Mandible triangle (side-view lengths, by the List_of_landmarks.docx formulas)
     "Mandible_length", "Nasal_QMJ_dist",
     # Hyoid and buccal volume
-    "D_head", "D_head_backup", "Nasal_eye_AP_length", "Hyoid_rest_AP",
+    "D_head", "D_head_backup", "Nasal_eye_AP_length", "Hyoid_rest_AP", "Hyoid_rest_depth",
     "Ceratohyal_length", "Ceratohyal_AP_rest", "Ceratohyal_DV_rest",
     # Other bones
     "Neurocranium_length", "Supraoccipital_crest_depth", "Urohyal_length", "Length_premaxilla_asc_arm",
@@ -233,7 +242,8 @@ rm(list=ls())
     "Mandible_input_length_3D", "Maxilla_length_3D", "Maxilla_palatine_length_3D", "Oral_fixed_length_3D",
     "Operculum_length_3D", "IOP_length_3D", "IOP_ligament_length_3D", "RA_process_length_3D", "Opercular_fixed_length_3D",
     # Checks
-    "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check")
+    "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check",
+    "Eye_parasph_AP_check", "Eye_parasph_DV_check")
 
   scanMeas <- data.frame(specimen  = hardSpecimens,
                          Family    = rep(NA_character_, nSpec),
@@ -270,6 +280,10 @@ rm(list=ls())
       jointL <- (lmk("jointDorsL") + lmk("jointVentL")) / 2
       jointR <- (lmk("jointDorsR") + lmk("jointVentR")) / 2
 
+      # Eye centre = midpoint of the two orbit landmarks (the point tracked as Eye in the videos). NA if they aren't in the file
+      eyeCentre <- (lmk("orbitA") + lmk("orbitB")) / 2
+      hasEye    <- !any(is.na(eyeCentre))
+
 
     ##### Skull frame
       # The frame needs the left-right pairs, nasal tip, parasphenoid and supraoccipital crest
@@ -294,8 +308,11 @@ rm(list=ls())
              "(tooth row, joint, nasal, ceratohyal = ", paste(round(pairAngles), collapse = ", "), "). Check for swapped sides")
       }
 
-      # AP axis: nasal tip to parasphenoid, without its left-right part. Positive = posterior
-      apAxis <- lmk("parasph") - lmk("nasalL")
+      # AP axis: nasal tip to eye centre (the video's Eye-Nasal line), without its left-right part. Positive = posterior
+        # Without the orbit landmarks, the parasphenoid sets the axis. Side-view lengths and four-bar angles don't depend on which,
+        # but the AP/DV hyoid values do, so those are left NA (below)
+      apTarget <- if(hasEye) eyeCentre else lmk("parasph")
+      apAxis <- apTarget - lmk("nasalL")
       apAxis <- unitVec(apAxis - sum(apAxis * lrAxis) * lrAxis)
 
       # DV axis: perpendicular to both. Positive = ventral
@@ -354,14 +371,25 @@ rm(list=ls())
       scanMeas$D_head_backup[i]    <- distSide(lmk("nasalL"), lmk("ceratoRost"))
       scanMeas$D_head_backup_3D[i] <- dist3D(lmk("nasalL"), lmk("ceratoRost"))
 
-      # AP distances along the Eye-Nasal baseline
-      scanMeas$Nasal_eye_AP_length[i] <- apComp(lmk("nasalL"), lmk("parasph"))
-      scanMeas$Hyoid_rest_AP[i]       <- apComp(lmk("parasph"), lmk("ceratoRost"))   # positive if the rostral ceratohyal tip is posterior to the parasphenoid
+      # Ceratohyal_length doesn't depend on the frame
+      scanMeas$Ceratohyal_length[i] <- dist3D(lmk("ceratoRost"), lmk("ceratoCaudL"))
 
-      # Ceratohyal bar at rest
-      scanMeas$Ceratohyal_length[i]  <- dist3D(lmk("ceratoRost"), lmk("ceratoCaudL"))
-      scanMeas$Ceratohyal_AP_rest[i] <- apComp(lmk("ceratoRost"), lmk("ceratoCaudL"))   # positive if the caudal tip is posterior
-      scanMeas$Ceratohyal_DV_rest[i] <- dvComp(lmk("ceratoCaudL"), lmk("ceratoRost"))   # positive if the rostral tip is ventral
+      # Resting positions along and below the Eye-Nasal line, in the same frame the video measures hyoid depression and retraction in
+        # NA without the orbit landmarks
+      if(hasEye) {
+        scanMeas$Nasal_eye_AP_length[i] <- apComp(lmk("nasalL"), eyeCentre)
+        scanMeas$Hyoid_rest_AP[i]       <- apComp(eyeCentre, lmk("ceratoRost"))      # positive if the rostral ceratohyal tip is posterior to the eye centre
+        scanMeas$Hyoid_rest_depth[i]    <- dvComp(lmk("nasalL"), lmk("ceratoRost"))  # depth of the rostral ceratohyal tip below the Eye-Nasal line (zero for hyoid depression)
+
+        # Ceratohyal bar at rest
+        scanMeas$Ceratohyal_AP_rest[i] <- apComp(lmk("ceratoRost"), lmk("ceratoCaudL"))   # positive if the caudal tip is posterior
+        scanMeas$Ceratohyal_DV_rest[i] <- dvComp(lmk("ceratoCaudL"), lmk("ceratoRost"))   # positive if the rostral tip is ventral
+
+        # Check: how far the parasphenoid (the old baseline) is from the eye centre. Positive = parasphenoid is posterior / ventral
+          # The retraction offset in the old frame was about 2.3 mm, so the AP value should be near that
+        scanMeas$Eye_parasph_AP_check[i] <- apComp(eyeCentre, lmk("parasph"))
+        scanMeas$Eye_parasph_DV_check[i] <- dvComp(eyeCentre, lmk("parasph"))
+      }
 
       # Check: the bar model's resting half-width should be close to W_head/2 (ratio near 1)
         # NaN if the scan values can't form the bar at rest (the kinematics script stops on these)
@@ -537,6 +565,18 @@ rm(list=ls())
   }
 
 
+  # Fish without the orbit landmarks: their hyoid zero points are NA, so the kinematics script leaves their hyoid depression and buccal volume out
+  noEye <- scanOut$specimen[!is.na(scanOut$hardFile) & is.na(scanOut$Hyoid_rest_depth) & !(scanOut$specimen %in% hyoidNotAtRestScans)]
+  if(length(noEye) > 0) {
+    print(paste0(length(noEye), " fish without the orbit landmarks (28, 29), or with them missing:"))
+    print(noEye)
+  }
+
+  # Where the parasphenoid sits relative to the eye centre (mm)
+  print("Parasphenoid relative to the eye centre, AP (posterior +) and DV (ventral +):")
+  print(summary(scanOut$Eye_parasph_AP_check))
+  print(summary(scanOut$Eye_parasph_DV_check))
+
   # Missing landmarks
   if(any(scanOut$missingLandmarks != "", na.rm = TRUE)) {
     print("Fish with missing landmarks (measurements that need them are NA):")
@@ -549,7 +589,8 @@ rm(list=ls())
 
   # Values far from the median (more than 4 MADs) = worth opening in Slicer
   print("Values more than 4 MADs from the median:")
-  for(colNow in setdiff(measCols, c("pairAngle_max_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check"))) {
+  for(colNow in setdiff(measCols, c("pairAngle_max_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check",
+                                    "Eye_parasph_AP_check", "Eye_parasph_DV_check"))) {
     valNow <- scanOut[[colNow]]
     if(sum(!is.na(valNow)) < 3 || mad(valNow, na.rm = TRUE) == 0) {
       next
