@@ -969,7 +969,7 @@ print(length(unique(finalData$Unique.ID)))
 ###################################
 
         # Are the scan angles in degrees? If so, convert to radians
-        scanAnglesInDegrees <- TRUE   ### CHANGE to FALSE if the scan angles are already in radians
+        scanAnglesInDegrees <- FALSE   ### CHANGE to TRUE if the scan angles are in degrees (Scan_measurements_from_landmarks.R saves radians)
         
         if(scanAnglesInDegrees) {
           angleCols <- intersect(c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest_scan"), names(finalData))
@@ -981,6 +981,7 @@ print(length(unique(finalData$Unique.ID)))
         # Direction of opening in four-bar angles
           # Mandible_ang and Neurocranium_rotation are positive for opening/elevation
           # Use +1 if that increases theta2 in your four-bar convention, -1 if it decreases it
+          # +1 for both with the angles from Scan_measurements_from_landmarks.R (counterclockwise-positive, fish facing left)
         oralOpenSign      <- 1   ### CHECK with one individual
         opercularOpenSign <- 1   ### CHECK with one individual
         
