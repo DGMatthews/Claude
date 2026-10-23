@@ -566,6 +566,7 @@ finalData <- data.frame(vidName = fileNames2,
                         U_flow_ff_predicted_mean = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_bigGape = rep(NA_real_, nVids),
                         Width_hypaxial_floor_frames = rep(NA_real_, nVids),
+                        Hyoid_beyond_ceratohyal_frames = rep(NA_real_, nVids),
                         Width_total_floor_frames = rep(NA_real_, nVids),
                         V_buccal_neuroIncluded = rep(NA, nVids),
                         U_ram_mean_frames = rep(NA_real_, nVids),
@@ -951,6 +952,12 @@ print(length(unique(finalData$Unique.ID)))
     }
     
     
+    # Resting depth of the tracked Hyoid point (rostral ceratohyal tip) below the Eye-Nasal line
+      # D_head is measured to the caudal ceratohyal tips. The rostral tip sits Ceratohyal_DV_rest below them (negative = above), so the ceratohyal doesn't have to be horizontal at rest
+      # Zero point for hyoid depression (eye videos) and the vertical side of the no-eye triangle. The frustum's back face still uses D_head
+    finalData$Hyoid_rest_depth <- finalData$D_head + finalData$Ceratohyal_DV_rest
+
+
     # Checks
       # How many videos are missing each measurement?
     print(colSums(is.na(finalData[, names(scanColumns)])))
@@ -2219,7 +2226,7 @@ for(i in 1:nVids) {
 
         # Hyoid landmark = rostral tip of the ceratohyal, seen through the skin (joined to the rostral tip of the urohyal, so the two are treated as the same point)
           # Only visible mid-strike, so resting positions come from the scans
-        # Main version (Hyoid_*): dorsoventral depth below the Eye-Nasal line, minus D_head
+        # Main version (Hyoid_*): dorsoventral depth below the Eye-Nasal line, minus Hyoid_rest_depth (D_head + Ceratohyal_DV_rest)
           # Videos with the eye: measured here, in the skull frame (line taken from the same frame, so neurocranium rotation is already removed)
           # Videos without the eye: calculated after the loop from the Nasal-Hyoid distance with the triangle and the pooled retraction ratio
           # Hyoid_depth_source records which ("eye" or "triangle")
@@ -2272,7 +2279,7 @@ for(i in 1:nVids) {
 
           # Settings for each version
           hyoidVersions <- list(
-            list(section = "Hyoid",        missing = "Hyoid, Eye and Nasal never all present", raw_t = hyoidDepthSkull_t, rest = finalData$D_head[i],
+            list(section = "Hyoid",        missing = "Hyoid, Eye and Nasal never all present", raw_t = hyoidDepthSkull_t, rest = finalData$Hyoid_rest_depth[i],
                  cols = hyoidColsMain,   depressionSeries = "Hyoid_depression_t",        velSeries = "Hyoid_vel_t"),
             list(section = "Hyoid backup", missing = "Hyoid and Nasal never both present",   raw_t = hyoidDistNasal_t,  rest = finalData$D_head_backup[i],
                  cols = hyoidColsBackup, depressionSeries = "Hyoid_excursion_t_backup",  velSeries = "Hyoid_excursion_vel_t_backup")
@@ -2593,7 +2600,8 @@ for(i in 1:nVids) {
     }
 
     buccalCols <- c("V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
-                    "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded")
+                    "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
+                    "Hyoid_beyond_ceratohyal_frames")
     for(colNow in buccalCols) {
       finalData[[colNow]][] <- NA
     }
@@ -2658,9 +2666,10 @@ for(i in 1:nVids) {
 
 
   ##### Triangle depth for videos without the eye
-    # Tracked Nasal-Hyoid distance d satisfies d^2 = (a + beta*h)^2 + (D_head + h)^2
+    # Tracked Nasal-Hyoid distance d satisfies d^2 = (a + beta*h)^2 + (Hyoid_rest_depth + h)^2
       # h = depression, a = Nasal_eye_AP_length + Hyoid_rest_AP (resting AP distance from the nasal tip to the hyoid)
-    # Quadratic in h: (1 + beta^2) h^2 + 2(a*beta + D_head) h + (a^2 + D_head^2 - d^2) = 0
+      # Hyoid_rest_depth = D_head + Ceratohyal_DV_rest (resting depth of the rostral ceratohyal tip)
+    # Quadratic in h: (1 + beta^2) h^2 + 2(a*beta + Hyoid_rest_depth) h + (a^2 + Hyoid_rest_depth^2 - d^2) = 0
       # The + root is the physical one (it's 0 at rest)
     # Retraction = beta * h
 
@@ -2679,7 +2688,7 @@ for(i in 1:nVids) {
       stepError <- tryCatch({
 
       aNow     <- finalData$Nasal_eye_AP_length[i] + finalData$Hyoid_rest_AP[i]
-      dHeadNow <- finalData$D_head[i]
+      dHeadNow <- finalData$Hyoid_rest_depth[i]
 
       # Missing scan values aren't logged, since they aren't a landmarking problem
       if(is.na(aNow) || is.na(dHeadNow)) {
@@ -2834,12 +2843,19 @@ for(i in 1:nVids) {
 
       ##### Ceratohyal angles and buccal width (radians, mm)
 
-        if(any(hNow / cerL > 1)) {
-          stop("Hyoid depression is longer than Ceratohyal_length (max ", round(max(hNow), 2), " mm) in: ", fileNames2[i], ". Check the D_head zero or Ceratohyal_length")
+        # Depression can exceed Ceratohyal_length, since the caudal end of the bar drops too (through the interhyal)
+          # The rotation angle below assumes it doesn't, so it's NA for those frames. Logged as a warning; buccal volume is still calculated
+        tooDeep <- hNow / cerL > 1
+        finalData$Hyoid_beyond_ceratohyal_frames[i] <- sum(tooDeep)
+        if(any(tooDeep)) {
+          skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume",
+                                 paste0("WARNING: hyoid depression longer than Ceratohyal_length in ", sum(tooDeep), " of ", nStrike, " strike frames (max depression ",
+                                        round(max(hNow), 2), " mm, Ceratohyal_length ", round(cerL, 2), " mm, ratio ", round(max(hNow) / cerL, 2),
+                                        "). Ceratohyal_rotation_angle is NA for those frames"))
         }
 
         # Ceratohyal_rotation_angle_t (phenotype only, doesn't feed the width)
-        Ceratohyal_rotation_angle_t <- asin(hNow / cerL)
+        Ceratohyal_rotation_angle_t <- ifelse(tooDeep, NA_real_, asin(pmin(hNow / cerL, 1)))
 
         # Half-width. A negative square means the bar can't reach, the extreme case of narrowing, so it's floored below
         halfWidthSq <- cerL^2 - (cerAP0 - rNow)^2 - (cerDV0 + hNow)^2
@@ -2959,8 +2975,8 @@ for(i in 1:nVids) {
 
     # Scan consistency, one row per fish
   scanRowsNow <- !duplicated(finalData$Unique.ID)
-      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. Should be close (they differ only by the ceratohyal stand-in for depth)
-  print(summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$D_head^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow]))
+      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. Should be close (Hyoid_rest_depth = D_head + Ceratohyal_DV_rest)
+  print(summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$Hyoid_rest_depth^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow]))
       # Resting ceratohyal half-width from the bar vs. W_head/2. Should be close to 0
   print(summary(sqrt(finalData$Ceratohyal_length^2 - finalData$Ceratohyal_AP_rest^2 - finalData$Ceratohyal_DV_rest^2)[scanRowsNow] - finalData$W_head[scanRowsNow]/2))
 
@@ -2977,6 +2993,8 @@ for(i in 1:nVids) {
       # Fraction of strike frames floored
   print(tapply(finalData$Width_hypaxial_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary))
   print(tapply(finalData$Width_total_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary))
+      # Videos where hyoid depression is longer than Ceratohyal_length in some frames (logged as warnings in skippedVids)
+  print(tapply(finalData$Hyoid_beyond_ceratohyal_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE))
 
     # Are small gapes dominating U_flow_ff_predicted?   ### CHECK
       # Ratio far from 1, or a weak correlation, means the frames near Tstart/Tend (small A) are driving the full-strike mean
