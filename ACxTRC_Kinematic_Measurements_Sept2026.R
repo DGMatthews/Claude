@@ -868,7 +868,7 @@ print(length(unique(finalData$Unique.ID)))
 
   # Read in the measurements from the scans for each individual
     # All lengths in mm, measured in a lateral (sagittal plane) view so they match what the camera sees
-    scanData <- read.csv('PATH/TO/scan_measurements.csv')        ### CHANGE path
+    scanData <- read.csv('C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/scan_measurements.csv')   ### CHANGE path (written by Scan_measurements_from_landmarks.R)
     
     # Columns in the scan file that identify each individual
     scanFamilyCol <- "Family"          ### CHANGE to the family column name in the scan file
