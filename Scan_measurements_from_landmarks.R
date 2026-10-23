@@ -230,7 +230,7 @@ rm(list=ls())
     "Mandible_input_length_3D", "Maxilla_length_3D", "Maxilla_palatine_length_3D", "Oral_fixed_length_3D",
     "Operculum_length_3D", "IOP_length_3D", "IOP_ligament_length_3D", "RA_process_length_3D", "Opercular_fixed_length_3D",
     # Checks
-    "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg")
+    "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check")
 
   scanMeas <- data.frame(specimen  = hardSpecimens,
                          Family    = rep(NA_character_, nSpec),
@@ -371,6 +371,12 @@ rm(list=ls())
       scanMeas$Supraoccipital_crest_depth[i] <- dist3D(lmk("crestBase"), lmk("crestTip"))
       scanMeas$Urohyal_length[i]             <- dist3D(lmk("urohyalRost"), lmk("urohyalCaud"))
       scanMeas$Length_premaxilla_asc_arm[i]  <- dist3D(lmk("pmxTip"), lmk("pmxAscArm"))
+
+
+    ##### Mouth-open check
+      # Mandible tip to premaxilla tip, as a fraction of Mandible_length. Near 0 when the mouth is closed
+        # Large values mean the mouth may be open in the scan (see mouthOpenScans)
+      scanMeas$Gape_rest_check[i] <- dist3D(lmk("mandTip"), lmk("pmxTip")) / scanMeas$Mandible_length[i]
 
 
     ##### Oral four-bar
@@ -540,7 +546,7 @@ rm(list=ls())
 
   # Values far from the median (more than 4 MADs) = worth opening in Slicer
   print("Values more than 4 MADs from the median:")
-  for(colNow in setdiff(measCols, c("pairAngle_max_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg"))) {
+  for(colNow in setdiff(measCols, c("pairAngle_max_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check"))) {
     valNow <- scanOut[[colNow]]
     if(sum(!is.na(valNow)) < 3 || mad(valNow, na.rm = TRUE) == 0) {
       next
@@ -561,6 +567,17 @@ rm(list=ls())
   print(scanOut$specimen[which(abs(scanOut$Oral_theta4_rest_diff_deg) > 1)])
   print("Opercular four-bar: predicted - measured theta4 at rest (small, from the bend at the IOP tip):")
   print(summary(scanOut$Opercular_theta4_rest_diff_deg))
+
+  # Mouths that may be open: gape more than 4 MADs above the median (only large values matter)
+    # Fish already in mouthOpenScans are left out of the list
+  print("Mandible tip to premaxilla tip / Mandible_length (mouth-open check):")
+  print(summary(scanOut$Gape_rest_check))
+  gapeCut <- median(scanOut$Gape_rest_check, na.rm = TRUE) + 4 * mad(scanOut$Gape_rest_check, na.rm = TRUE)
+  maybeOpen <- which(scanOut$Gape_rest_check > gapeCut & !(scanOut$specimen %in% mouthOpenScans))
+  print("Mouth may be open (check the scan, and add to mouthOpenScans if so):")
+  print(scanOut[maybeOpen[order(-scanOut$Gape_rest_check[maybeOpen])], c("specimen", "Gape_rest_check")])
+  print("Largest 5 gapes, for reference:")
+  print(head(scanOut[order(-scanOut$Gape_rest_check), c("specimen", "Gape_rest_check", "notAtRest")], 5))
 
   # Linkages that can't close at rest
   print("Fish whose four-bar can't close at rest (NaN):")
