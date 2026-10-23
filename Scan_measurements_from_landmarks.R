@@ -49,6 +49,20 @@ rm(list=ls())
     # The kinematics script matches on the Family column of the feeding data sheet, so the family has to be written the same way
   familyPrefix <- "F"   ### CHECK  "F" turns "1.2" into "F1.2". Set to "" if the data sheet writes families as "1.2"
 
+  # Scans where the fish isn't at rest, so its resting positions can't be measured
+    # Mouth open: the resting four-bar angles and the input link (joint to the ventral maxilla tip, which slides along the mandible as the mouth opens) are set to NA
+      # The kinematics script then leaves that fish's four-bar outputs as NA instead of starting from a wrong rest position
+    # Hyoid not at rest (depressed or abducted): the hyoid zero points and W_head are set to NA, so its hyoid depression and buccal volume are NA
+    # Bone lengths are kept, since they don't depend on posture
+  mouthOpenScans <- c("F2_1.3_8-11.08")   ### CHANGE  add any other scans with the mouth open
+  hyoidNotAtRestScans <- c()              ### CHANGE  add scans where the hyoid is visibly depressed or the ceratohyals spread
+
+  mouthOpenCols <- c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest",
+                     "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg",
+                     "Mandible_input_length", "Mandible_input_length_3D")
+  hyoidRestCols <- c("D_head", "D_head_backup", "D_head_backup_3D", "Hyoid_rest_AP",
+                     "Ceratohyal_AP_rest", "Ceratohyal_DV_rest", "Ceratohyal_half_width_check", "W_head")
+
   # Landmark numbers (position in the file), from List_of_landmarks.docx
   lmNames <- c(mandTip      = 1,    # Mandible tip
                pmxTip       = 2,    # Anterior tip of premaxilla – L
@@ -216,7 +230,7 @@ rm(list=ls())
     "Mandible_input_length_3D", "Maxilla_length_3D", "Maxilla_palatine_length_3D", "Oral_fixed_length_3D",
     "Operculum_length_3D", "IOP_length_3D", "IOP_ligament_length_3D", "RA_process_length_3D", "Opercular_fixed_length_3D",
     # Checks
-    "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg")
+    "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check")
 
   scanMeas <- data.frame(specimen  = hardSpecimens,
                          Family    = rep(NA_character_, nSpec),
@@ -359,6 +373,12 @@ rm(list=ls())
       scanMeas$Length_premaxilla_asc_arm[i]  <- dist3D(lmk("pmxTip"), lmk("pmxAscArm"))
 
 
+    ##### Mouth-open check
+      # Mandible tip to premaxilla tip, as a fraction of Mandible_length. Near 0 when the mouth is closed
+        # Large values mean the mouth may be open in the scan (see mouthOpenScans)
+      scanMeas$Gape_rest_check[i] <- dist3D(lmk("mandTip"), lmk("pmxTip")) / scanMeas$Mandible_length[i]
+
+
     ##### Oral four-bar
       # Input = mandible (joint to ventral maxilla tip), coupler = maxilla, output = dorsal maxilla tip to palatine, fixed = joint to palatine
       scanMeas$Mandible_input_length[i]   <- distSide(jointL, lmk("maxVent"))
@@ -411,6 +431,22 @@ rm(list=ls())
                                     scanMeas$RA_process_length[i], scanMeas$Opercular_fixed_length[i])
       scanMeas$Opercular_theta4_rest_diff_deg[i] <- wrapAngle(opTheta4Pred - scanMeas$Opercular_theta4_rest[i]) * 180 / pi
   }
+
+
+  ##### Scans that aren't at rest
+    # Names that don't match any scan are listed, in case of a typo
+  notFound <- setdiff(c(mouthOpenScans, hyoidNotAtRestScans), scanMeas$specimen)
+  if(length(notFound) > 0) {
+    print("Scans listed as not at rest that aren't in the hard-tissue folder (check the names):")
+    print(notFound)
+  }
+
+  scanMeas[scanMeas$specimen %in% mouthOpenScans, mouthOpenCols]      <- NA
+  scanMeas[scanMeas$specimen %in% hyoidNotAtRestScans, hyoidRestCols] <- NA
+
+  scanMeas$notAtRest <- ifelse(scanMeas$specimen %in% mouthOpenScans,
+                               ifelse(scanMeas$specimen %in% hyoidNotAtRestScans, "mouth open; hyoid", "mouth open"),
+                               ifelse(scanMeas$specimen %in% hyoidNotAtRestScans, "hyoid", ""))
 
 
 ###########################
@@ -510,7 +546,7 @@ rm(list=ls())
 
   # Values far from the median (more than 4 MADs) = worth opening in Slicer
   print("Values more than 4 MADs from the median:")
-  for(colNow in setdiff(measCols, c("pairAngle_max_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg"))) {
+  for(colNow in setdiff(measCols, c("pairAngle_max_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check"))) {
     valNow <- scanOut[[colNow]]
     if(sum(!is.na(valNow)) < 3 || mad(valNow, na.rm = TRUE) == 0) {
       next
@@ -531,6 +567,17 @@ rm(list=ls())
   print(scanOut$specimen[which(abs(scanOut$Oral_theta4_rest_diff_deg) > 1)])
   print("Opercular four-bar: predicted - measured theta4 at rest (small, from the bend at the IOP tip):")
   print(summary(scanOut$Opercular_theta4_rest_diff_deg))
+
+  # Mouths that may be open: gape more than 4 MADs above the median (only large values matter)
+    # Fish already in mouthOpenScans are left out of the list
+  print("Mandible tip to premaxilla tip / Mandible_length (mouth-open check):")
+  print(summary(scanOut$Gape_rest_check))
+  gapeCut <- median(scanOut$Gape_rest_check, na.rm = TRUE) + 4 * mad(scanOut$Gape_rest_check, na.rm = TRUE)
+  maybeOpen <- which(scanOut$Gape_rest_check > gapeCut & !(scanOut$specimen %in% mouthOpenScans))
+  print("Mouth may be open (check the scan, and add to mouthOpenScans if so):")
+  print(scanOut[maybeOpen[order(-scanOut$Gape_rest_check[maybeOpen])], c("specimen", "Gape_rest_check")])
+  print("Largest 5 gapes, for reference:")
+  print(head(scanOut[order(-scanOut$Gape_rest_check), c("specimen", "Gape_rest_check", "notAtRest")], 5))
 
   # Linkages that can't close at rest
   print("Fish whose four-bar can't close at rest (NaN):")
