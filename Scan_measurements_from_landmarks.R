@@ -49,6 +49,20 @@ rm(list=ls())
     # The kinematics script matches on the Family column of the feeding data sheet, so the family has to be written the same way
   familyPrefix <- "F"   ### CHECK  "F" turns "1.2" into "F1.2". Set to "" if the data sheet writes families as "1.2"
 
+  # Scans where the fish isn't at rest, so its resting positions can't be measured
+    # Mouth open: the resting four-bar angles and the input link (joint to the ventral maxilla tip, which slides along the mandible as the mouth opens) are set to NA
+      # The kinematics script then leaves that fish's four-bar outputs as NA instead of starting from a wrong rest position
+    # Hyoid not at rest (depressed or abducted): the hyoid zero points and W_head are set to NA, so its hyoid depression and buccal volume are NA
+    # Bone lengths are kept, since they don't depend on posture
+  mouthOpenScans <- c("F2_1.3_8-11.08")   ### CHANGE  add any other scans with the mouth open
+  hyoidNotAtRestScans <- c()              ### CHANGE  add scans where the hyoid is visibly depressed or the ceratohyals spread
+
+  mouthOpenCols <- c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest",
+                     "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg",
+                     "Mandible_input_length", "Mandible_input_length_3D")
+  hyoidRestCols <- c("D_head", "D_head_backup", "D_head_backup_3D", "Hyoid_rest_AP",
+                     "Ceratohyal_AP_rest", "Ceratohyal_DV_rest", "Ceratohyal_half_width_check", "W_head")
+
   # Landmark numbers (position in the file), from List_of_landmarks.docx
   lmNames <- c(mandTip      = 1,    # Mandible tip
                pmxTip       = 2,    # Anterior tip of premaxilla – L
@@ -411,6 +425,22 @@ rm(list=ls())
                                     scanMeas$RA_process_length[i], scanMeas$Opercular_fixed_length[i])
       scanMeas$Opercular_theta4_rest_diff_deg[i] <- wrapAngle(opTheta4Pred - scanMeas$Opercular_theta4_rest[i]) * 180 / pi
   }
+
+
+  ##### Scans that aren't at rest
+    # Names that don't match any scan are listed, in case of a typo
+  notFound <- setdiff(c(mouthOpenScans, hyoidNotAtRestScans), scanMeas$specimen)
+  if(length(notFound) > 0) {
+    print("Scans listed as not at rest that aren't in the hard-tissue folder (check the names):")
+    print(notFound)
+  }
+
+  scanMeas[scanMeas$specimen %in% mouthOpenScans, mouthOpenCols]      <- NA
+  scanMeas[scanMeas$specimen %in% hyoidNotAtRestScans, hyoidRestCols] <- NA
+
+  scanMeas$notAtRest <- ifelse(scanMeas$specimen %in% mouthOpenScans,
+                               ifelse(scanMeas$specimen %in% hyoidNotAtRestScans, "mouth open; hyoid", "mouth open"),
+                               ifelse(scanMeas$specimen %in% hyoidNotAtRestScans, "hyoid", ""))
 
 
 ###########################
