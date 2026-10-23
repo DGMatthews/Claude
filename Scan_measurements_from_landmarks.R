@@ -42,11 +42,10 @@ rm(list=ls())
   pathSoftSummary <- 'D:/Hybrid feeding project/CT Landmarks/Soft_withArea/soft_tissue_areas.csv'   ### CHANGE if you overwrote the originals instead
 
   # Where to save the results
-<<<<<<< Updated upstream
+
   pathOutput <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'
-=======
-  pathOutput <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'   ### CHANGE
->>>>>>> Stashed changes
+
+
   outFile    <- "scan_measurements.csv"
 
   # The filenames hold the family as a number (e.g. "1.2" in F2_1.2_11.19_HardLM.mrk.json)
