@@ -30,11 +30,20 @@ rm(list=ls())
   scanFile  <- file.path(pathData, 'scan_measurements.csv')                 # 1_Scan_measurements_from_landmarks.R
   sheetFile <- file.path(pathData, 'ACxTRCfeedingdata_Oct2026_FIXED.csv')   # feeding data sheet (same file as script 2)
 
-  outPrefix <- file.path(pathData, 'SEM_dataset')   # saves <outPrefix>_tmax.csv and <outPrefix>_tmaxVel.csv
+  outPrefix <- file.path(pathData, 'SEM_dataset')   # saves <outPrefix>_tmax.csv, <outPrefix>_tmaxVel.csv and <outPrefix>.rds
+    # Use the .rds in script 5: it keeps Prey_num as an ordered factor, which a .csv can't store
 
-  # One row per strike (keep Fish_ID for a random effect in each equation) or per fish (each variable's best value across the fish's strikes:
-    # the maximum, except Max_sub_pressure, where the most negative value is the strongest suction)
+  # One row per strike (keep Fish_ID for a random effect in each equation) or per fish
+    # Per fish: every value comes from the fish's strike with the most negative Max_sub_pressure (its strongest suction)
   unitOfAnalysis <- "strike"   ### CHANGE  "strike" or "fish"
+
+  # Per fish, for fish with no strike that has pressure
+  fishNoPressure <- "largestGape"   ### CHANGE  "largestGape" (use the strike with the largest A_Max) or "drop" (leave the fish out)
+
+  # Prey_num is an ordered categorical variable. Its levels, lowest to highest, as written in the data sheet
+    # Matching ignores capitals and spaces at either end ("Few " = "few")
+    # The script stops if the sheet has a value that isn't in this list
+  preyLevels <- c("one", "few", "several", "many")   ### CHECK  spelling in the data sheet
 
   # Which epaxial cross-section is Epaxial_CSA
   epaxialSection <- "crest"    ### CHANGE  "crest" (highest point of the supraoccipital crest) or "flat" (where the neurocranium flattens out)
@@ -181,7 +190,7 @@ rm(list=ls())
   # Stop if any expected column is missing from the inputs (a name changed in an earlier script)
   missingKin  <- setdiff(c(as.vector(outer(timeVarsKin, c("_tmax", "_tmaxVel"), paste0)),
                            as.vector(outer(timeVarsBuccal, c("_tmax", "_tmaxVel"), function(a, b) paste0(a, b, widthSuffix))),
-                           "Hyoid_tmax_filled", "Hyoid_tmaxVel_filled",
+                           "Hyoid_tmax_filled", "Hyoid_tmaxVel_filled", "tmax", "tmaxVel", "Tstart",
                            setdiff(strikeVars, names(effortCols)), paste0(strikeVarsBuccal, widthSuffix), fishVars, flagVars),
                          names(kin))
   missingFlow <- setdiff(c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0))), flowName(strikeVarsFlow), "Max_sub_pressure"),
@@ -201,6 +210,8 @@ rm(list=ls())
     for(v in timeVarsBuccal) out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow, widthSuffix)]]
     for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow))]][flowRow]
     out$Hyoid_tmax_filled <- kin[[paste0("Hyoid_", timeNow, "_filled")]]
+    # Time of tmax (or tmaxVel) from Tstart (s), for Relative_tmax = tmax / T in script 5
+    out$tmax_from_Tstart <- kin[[timeNow]] - kin$Tstart
 
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
@@ -216,41 +227,43 @@ rm(list=ls())
     names(out)[names(out) == "Ttotal"] <- "T"
     names(out)[names(out) == "Ttpg"]   <- "ttpg"
 
-    # One row per fish: each numeric column's maximum over the fish's strikes (NA if none of its strikes have a value)
-      # Max_sub_pressure takes the minimum instead (most negative = strongest suction)
-      # Each column's best value can come from a different strike, so a fish's row isn't one real strike
+    # Prey_num as an ordered factor (levels in preyLevels order, not alphabetical)
+      # Blank cells are NA
+    preyNow <- tolower(trimws(as.character(out$Prey_num)))
+    preyNow[preyNow == ""] <- NA
+    levelsNow <- tolower(trimws(preyLevels))
+    if(any(!(na.omit(preyNow) %in% levelsNow))) {
+      stop("Prey_num values not in preyLevels: ", paste(setdiff(unique(na.omit(preyNow)), levelsNow), collapse = ", "))
+    }
+    out$Prey_num <- factor(preyNow, levels = levelsNow, ordered = TRUE)
+
+    # One row per fish: the whole row of the fish's strike with the most negative Max_sub_pressure
+      # Fish with no pressure in any strike: the strike with the largest A_Max, or left out (fishNoPressure)
+      # bestStrikeBasis records which. n_strikes = how many strikes the fish has
     if(unitOfAnalysis == "fish") {
-      numCols <- names(out)[sapply(out, is.numeric) | sapply(out, is.logical)]
-      fishOut <- aggregate(out[numCols], by = list(Fish_ID = out$Fish_ID),
-                           FUN = function(x) if(all(is.na(x))) NA_real_ else max(x, na.rm = TRUE))
-      fishOut$Max_sub_pressure <- as.vector(tapply(out$Max_sub_pressure, out$Fish_ID,
-                                                   function(x) if(all(is.na(x))) NA_real_ else min(x, na.rm = TRUE))[fishOut$Fish_ID])
+      pickRow <- sapply(split(seq_len(nrow(out)), out$Fish_ID), function(rowsNow) {
+        if(any(!is.na(out$Max_sub_pressure[rowsNow]))) {
+          return(rowsNow[which.min(out$Max_sub_pressure[rowsNow])])
+        }
+        if(fishNoPressure == "largestGape" && any(!is.na(out$A_Max[rowsNow]))) {
+          return(rowsNow[which.max(out$A_Max[rowsNow])])
+        }
+        NA_integer_
+      })
+      fishOut <- out[na.omit(pickRow), ]
+      fishOut$bestStrikeBasis <- ifelse(!is.na(fishOut$Max_sub_pressure), "pressure", "largestGape")
       fishOut$n_strikes <- as.vector(table(out$Fish_ID)[fishOut$Fish_ID])
-      fishOut <- merge(unique(out[, c("Fish_ID", "Family", "Animal.ID", "timeBasis")]), fishOut, by = "Fish_ID")
+      if(any(is.na(pickRow))) {
+        print(paste0(sum(is.na(pickRow)), " fish left out (no strike with pressure", if(fishNoPressure == "largestGape") " or A_Max", ")"))
+      }
       return(fishOut)
     }
     out
   }
 
 
-  # Composite Effort score (piecewiseSEM has no latent variables)
-    # First principal component of the standardized indicators (<Neurocranium_Adj_vel>, <Hyoid_Adj_vel>, T), on rows with all three
-    # Sign set so it increases with <Neurocranium_Adj_vel>. A stand-in for the latent Effort =~ ... in SEM_Equations
-  addEffortPC <- function(d) {
-    ind <- d[, c("Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean", "T")]
-    ok  <- complete.cases(ind)
-    d$Effort_PC1 <- NA_real_
-    if(sum(ok) >= 10) {
-      pc <- prcomp(ind[ok, ], scale. = TRUE)
-      flipNow <- if(cor(pc$x[, 1], ind$Neurocranium_Adj_vel_mean[ok]) < 0) -1 else 1
-      d$Effort_PC1[ok] <- flipNow * pc$x[, 1]
-      print(paste0("Effort_PC1 (", d$timeBasis[1], "): loadings ", paste(names(pc$rotation[, 1]), round(flipNow * pc$rotation[, 1], 2), collapse = ", "),
-                   "; variance explained ", round(summary(pc)$importance[2, 1], 2)))
-    }
-    d
-  }
-
-  datasets <- lapply(c(tmax = "tmax", tmaxVel = "tmaxVel"), function(tNow) addEffortPC(buildDataset(tNow)))
+  # Effort (latent variable) is not made here: it's fitted in script 5 (see 5_SEM_notes.md)
+  datasets <- lapply(c(tmax = "tmax", tmaxVel = "tmaxVel"), buildDataset)
 
 
 ############
@@ -273,15 +286,16 @@ rm(list=ls())
     Flow_acc_tmax       = c("U_flow_ef_meas_acc_tmax", "Relative_tmax", "Kinetic_Synchronization", "V_buccal_acc_tmax", "V_buccal_vel_tmax", "A_vel_tmax", "A_tmax"),
     Flow_mean           = c("U_flow_ef_meas_mean", "Kinetic_Synchronization", "U_flow_ff_predicted_mean_bigGape"),
     Mandible_angvel     = c("Mandible_angular_vel_tmax", "Neurocranium_angular_vel_tmax", "Opercular_KT_tmax", "IOP_ligament_CSA", "Hyoid_vel_tmax", "Protractor_hyoideus_CSA", "Mandible_length"),
-    Hyoid_vel_tmax      = c("Hyoid_vel_tmax", "Hypaxial_CSA", "Effort_PC1", "Sternohyoideus_CSA", "Urohyal_length"),
+    Hyoid_vel_tmax      = c("Hyoid_vel_tmax", "Hypaxial_CSA", "Sternohyoideus_CSA", "Urohyal_length"),            # + Effort (script 5)
     Hyoid_dep_tmax      = c("Hyoid_depression_tmax", "Relative_tmax", "Hyoid_ROM"),
-    Neuro_linvel_tmax   = c("Neurocranium_linear_vel_tmax", "Epaxial_CSA", "Effort_PC1", "Neurocranium_MA"),
+    Neuro_linvel_tmax   = c("Neurocranium_linear_vel_tmax", "Epaxial_CSA", "Neurocranium_MA"),                     # + Effort (script 5)
     Neuro_rotation_tmax = c("Neurocranium_rotation_tmax", "Relative_tmax", "Neurocranium_ROM"),
     Maxilla_angvel      = c("Maxilla_angular_vel_tmax", "Mandible_angular_vel_tmax", "Oral_KT_tmax"),
     Maxilla_ang_check   = c("Maxilla_ang_tmax", "Maxilla_ang_predicted_tmax"),
     Mandible_ang_check  = c("Mandible_ang_predicted_tmax", "Opercular_theta4_tmax", "Opercular_theta4_rest", "IOP_ligament_CSA", "Hyoid_depression_tmax", "Protractor_hyoideus_CSA", "Mandible_length"),
     Protrusion_ROM      = c("Protrusion_ROM", "Length_premaxilla_asc_arm"),
-    Effort              = c("Effort_PC1", "Prey_num", "Fasting_time", "Satiation"))
+    Effort_indicators   = c("Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean", "T"),                               # all three (FIML in script 5 can use fewer)
+    Effort_covariates   = c("Prey_num", "Fasting_time", "Satiation"))
 
   for(tNow in names(datasets)) {
     d <- datasets[[tNow]]
@@ -302,10 +316,14 @@ rm(list=ls())
 #  Save  #
 ##########
 
+  fishTag <- if(unitOfAnalysis == "fish") "_byFish" else ""
   for(tNow in names(datasets)) {
-    fileNow <- paste0(outPrefix, "_", tNow, if(unitOfAnalysis == "fish") "_byFish" else "", ".csv")
+    fileNow <- paste0(outPrefix, "_", tNow, fishTag, ".csv")
     write.csv(datasets[[tNow]], fileNow, row.names = FALSE)
     print(paste0("Saved: ", fileNow))
   }
+  # Both datasets with their column types (Prey_num ordered), for script 5
+  saveRDS(datasets, paste0(outPrefix, fishTag, ".rds"))
+  print(paste0("Saved: ", outPrefix, fishTag, ".rds"))
   print(paste0("Settings: unit = ", unitOfAnalysis, ", epaxial = ", epaxialSection, ", width model = ", widthModel,
                ", flow version = ", if(flowVersion == "") "script 3 mainVersion" else flowVersion, ", drop censored = ", dropCensored))

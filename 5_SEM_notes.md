@@ -1,0 +1,37 @@
+# Notes for script 5 (`5_SEM_path_analysis.R`)
+
+Every step that involves an SEM is in script 5. Script 4 (`4_SEM_dataset.R`) only builds the dataset.
+
+## Input
+
+- Read `SEM_dataset.rds` (per strike) or `SEM_dataset_byFish.rds` (per fish), not the CSVs. The `.rds` keeps `Prey_num` as an ordered factor (one < few < several < many).
+- Satiation = strike number (`_E##`), a proxy: higher strike numbers mean more food eaten since fasting began.
+- No size correction anywhere in the SEM. Size corrections are only for the genetic screening of each parameter.
+
+## Effort: two-step hybrid (in the script)
+
+1. lavaan, measurement model only: `Effort =~ Neurocranium_Adj_vel_mean + Hyoid_Adj_vel_mean + T`, FIML (`missing = "ml"`), indicators standardized.
+   - Just-identified with 3 indicators (df = 0): no fit test, so check the loadings.
+2. **Bartlett factor scores** (`lavPredict(..., method = "Bartlett")`) = `Effort_score`. They are unbiased for the factor, so slopes on Effort aren't attenuated (regression scores would be).
+3. `Effort_score ~ Prey_num + Satiation + Fasting_time` and Effort's arrows into `Hyoid_vel_tmax` and `Neurocranium_linear_vel_tmax` are ordinary path equations.
+4. The bootstrap redoes step 1 in every resample, so the error in the scores is in the confidence intervals.
+
+## Decisions in the draft to check
+
+- **Mandible check equation.** The docs have `Mandible_ang_predicted(tmax)` on the left. In the data, that column *is* the four-bar prediction (the change in θ4 from rest). So the script uses the measured `Mandible_ang_tmax` as the response, with the prediction as a predictor.
+- **`Neurocranium_linear_vel_tmax ~ Epaxial_CSA * Effort * I(1/Neurocranium_MA)`.** The docs write `/Neurocranium_MA`. In an R formula `/` means nesting, so every ratio is written with `I()`.
+- **`#` equations use R's `*`.** This gives all main effects and interactions, so the three-way products have 7 terms each. At fish level that's a lot of parameters for the sample size.
+- **`*` (physics) equations use one product term (`I(...)`).** In the pressure equation each term is converted to Pa, so the coefficients should be about 1 if the physics holds.
+- **Units of `Total_ingested_volume`.** The coefficients are 1 only if it is in mm³.
+- **Linearization reference point.** Every variable is set to 90% of its largest-magnitude value. Identities are then recalculated from their parents' values, so the reference point is consistent (setting `refType`, with `"median"` as the alternative).
+- **`Prey_num` in the path effects.** Its effect is the mean change per step up the order: (many − one) / 3.
+- **T is an Effort indicator and also a predictor (exogenous in the path model).** The d-separation test will flag claims between Effort and the timing variables if Effort really drives T. If it does, a path from Effort to T, or to the timing variables, may be needed.
+- **d-separation.**
+  - Claims between two exogenous variables aren't tested; the morphology variables are correlated through size anyway.
+  - Claims that identities make trivially true are skipped and listed.
+  - With this many variables there are about 1000 claims, so Fisher's C is sensitive. The list of claims with the smallest p shows which arrows are missing.
+- **Identities are checked against the data**, including the four-bar values, which use script 2's own functions. A row with a large `median_rel_diff` means script 2 or script 3 calculates the variable differently from the docs.
+
+## Run time
+
+The bootstrap refits everything (lavaan plus 21 mixed models) for every resample. Use `nBoot = 200` to check the script, and 1000+ for the final run, which will be slow (tens of minutes per time basis).
