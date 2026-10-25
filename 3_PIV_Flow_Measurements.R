@@ -208,7 +208,7 @@ rm(list=ls())
   # Output columns (one set per velocity version)
   flowCols <- c("U_flow_ef_meas_tmax", "U_flow_ef_meas_tmaxVel", "U_flow_ef_meas_acc_tmax", "U_flow_ef_meas_acc_tmaxVel",
                 "U_flow_ff_tmax", "U_flow_ff_tmaxVel", "U_flow_ff_acc_tmax", "U_flow_ff_acc_tmaxVel",
-                "U_flow_ef_meas_Max", "U_flow_ef_meas_mean", "U_flow_ff_mean", "U_flow_ff_mean_bigGape",
+                "U_flow_ef_meas_Max", "U_flow_ef_meas_mean", "U_flow_ff_mean", "U_flow_ef_meas_mean_bigGape", "U_flow_ff_mean_bigGape",
                 "Cov_R_Uflowefmeas", "Cov_R_Uflowff", "Cov_A_Uflowff",
                 "Total_ingested_volume", "Total_ingested_volume_direct", "U_flow_strike_frac")
 
@@ -468,7 +468,8 @@ rm(list=ls())
               # Big-gape mean of the fish-frame flow, to compare with the predicted versions from the kinematics
               bigNow <- okA & aS >= uFlowAreaFrac * kin$A_Max[i]
               if(any(bigNow)) {
-                resNow["U_flow_ff_mean_bigGape"] <- mean(uFF[bigNow])
+                resNow["U_flow_ff_mean_bigGape"]      <- mean(uFF[bigNow])
+                resNow["U_flow_ef_meas_mean_bigGape"] <- mean(uS[bigNow])   # same frames, earth frame
               }
             }
           }
