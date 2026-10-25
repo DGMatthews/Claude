@@ -216,6 +216,9 @@ rm(list=ls())
                          Max_sub_pressure = NA_real_, pressure_peak_time = NA_real_,
                          Pressure_tmax = NA_real_, Pressure_tmaxVel = NA_real_,
                          pressure_node_zR = NA_real_, velocity_node_zR = NA_real_,
+                         static_node_zR_tmax = NA_real_, static_node_zR_tmaxVel = NA_real_,
+                         static_node_offR_tmax = NA_real_, static_node_offR_tmaxVel = NA_real_,
+                         static_Muller_factor_tmax = NA_real_, static_Muller_factor_tmaxVel = NA_real_,
                          static_corrected_frac = NA_real_)
   for(colNow in c(flowCols, as.vector(outer(flowCols, paste0("_", versions), paste0)))) {
     flowData[[colNow]] <- NA_real_
@@ -344,6 +347,18 @@ rm(list=ls())
         }
         if(!is.na(kVel) && kVel >= 1 && kVel <= nNow) {
           flowData$velocity_node_zR[i] <- nodeDist(pivNow$max_velocity_x_px, pivNow$max_velocity_y_px)$zR[kVel]
+        }
+
+        # Where the static velocity node was relative to the mouth at tmax and tmaxVel (multiples of the gape radius R),
+          # and the Muller factor (1 + zR^2)^1.5 there, without the distance limits. For using the uncorrected flow with distance as a covariate
+        dStat <- nodeDist(pivNow$max_velocity_x_px, pivNow$max_velocity_y_px)
+        for(tNm in c("tmax", "tmaxVel")) {
+          kNow <- round(kin[[tNm]][i] * frameRate) + 1
+          if(!is.na(kNow) && kNow >= 1 && kNow <= nNow) {
+            flowData[[paste0("static_node_zR_", tNm)]][i]        <- dStat$zR[kNow]
+            flowData[[paste0("static_node_offR_", tNm)]][i]      <- dStat$offR[kNow]
+            flowData[[paste0("static_Muller_factor_", tNm)]][i] <- (dStat$zR[kNow]^2 + 1)^1.5
+          }
         }
       }
 
