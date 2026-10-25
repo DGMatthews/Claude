@@ -698,6 +698,25 @@ finalData <- data.frame(vidName = fileNames2,
                         V_buccal_acc_tmaxVel = rep(NA_real_, nVids),
                         V_buccal_Max = rep(NA_real_, nVids),
                         Buccal_width_expansion_Max = rep(NA_real_, nVids),
+                        V_buccal_Max_noRetract = rep(NA_real_, nVids),
+                        V_buccal_vel_tmax_noRetract = rep(NA_real_, nVids),
+                        V_buccal_vel_tmaxVel_noRetract = rep(NA_real_, nVids),
+                        V_buccal_acc_tmax_noRetract = rep(NA_real_, nVids),
+                        V_buccal_acc_tmaxVel_noRetract = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_noRetract = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_frames_noRetract = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_full_noRetract = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_bigGape_noRetract = rep(NA_real_, nVids),
+                        V_buccal_Max_noWidth = rep(NA_real_, nVids),
+                        V_buccal_vel_tmax_noWidth = rep(NA_real_, nVids),
+                        V_buccal_vel_tmaxVel_noWidth = rep(NA_real_, nVids),
+                        V_buccal_acc_tmax_noWidth = rep(NA_real_, nVids),
+                        V_buccal_acc_tmaxVel_noWidth = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_noWidth = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_frames_noWidth = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_full_noWidth = rep(NA_real_, nVids),
+                        U_flow_ff_predicted_mean_bigGape_noWidth = rep(NA_real_, nVids),
+                        Buccal_width_expansion_Max_noRetract = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_full = rep(NA_real_, nVids),
                         U_flow_ff_predicted_mean_frames = rep(NA_real_, nVids),
@@ -811,6 +830,11 @@ finalTimeSeriesData <- list(R_t = array(data=NA, dim = c(1,longestVid, nVids), d
                             V_buccal_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("V_buccal_t", NULL, fileNames2)),
                             V_buccal_vel_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("V_buccal_vel_t", NULL, fileNames2)),
                             U_flow_ff_predicted_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_flow_ff_predicted_t", NULL, fileNames2)),
+                            Buccal_width_expansion_noRetract_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Buccal_width_expansion_noRetract_t", NULL, fileNames2)),
+                            V_buccal_noRetract_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("V_buccal_noRetract_t", NULL, fileNames2)),
+                            V_buccal_noWidth_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("V_buccal_noWidth_t", NULL, fileNames2)),
+                            U_flow_ff_predicted_noRetract_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_flow_ff_predicted_noRetract_t", NULL, fileNames2)),
+                            U_flow_ff_predicted_noWidth_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_flow_ff_predicted_noWidth_t", NULL, fileNames2)),
                             U_ram_body_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_ram_body_t", NULL, fileNames2)),
                             A_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("A_t", NULL, fileNames2))
                             )
@@ -2724,12 +2748,32 @@ for(i in 1:nVids) {
 
     buccalCols <- c("V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
                     "U_flow_ff_predicted_mean_full", "U_flow_ff_predicted_mean_frames", "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
-                    "Hyoid_beyond_ceratohyal_frames")
+                    "Hyoid_beyond_ceratohyal_frames",
+                    "V_buccal_Max_noRetract",
+                    "V_buccal_vel_tmax_noRetract",
+                    "V_buccal_vel_tmaxVel_noRetract",
+                    "V_buccal_acc_tmax_noRetract",
+                    "V_buccal_acc_tmaxVel_noRetract",
+                    "U_flow_ff_predicted_mean_noRetract",
+                    "U_flow_ff_predicted_mean_frames_noRetract",
+                    "U_flow_ff_predicted_mean_full_noRetract",
+                    "U_flow_ff_predicted_mean_bigGape_noRetract",
+                    "V_buccal_Max_noWidth",
+                    "V_buccal_vel_tmax_noWidth",
+                    "V_buccal_vel_tmaxVel_noWidth",
+                    "V_buccal_acc_tmax_noWidth",
+                    "V_buccal_acc_tmaxVel_noWidth",
+                    "U_flow_ff_predicted_mean_noWidth",
+                    "U_flow_ff_predicted_mean_frames_noWidth",
+                    "U_flow_ff_predicted_mean_full_noWidth",
+                    "U_flow_ff_predicted_mean_bigGape_noWidth",
+                    "Buccal_width_expansion_Max_noRetract")
     for(colNow in buccalCols) {
       finalData[[colNow]][] <- NA
     }
     buccalTS <- c("Ceratohyal_rotation_angle_t", "Ceratohyal_lateral_angle_hypaxial_t", "Ceratohyal_lateral_angle_t", "Ceratohyal_half_width_t",
-                  "Buccal_width_expansion_t", "V_buccal_t", "V_buccal_vel_t", "U_flow_ff_predicted_t")
+                  "Buccal_width_expansion_t", "V_buccal_t", "V_buccal_vel_t", "U_flow_ff_predicted_t",
+                  "Buccal_width_expansion_noRetract_t", "V_buccal_noRetract_t", "V_buccal_noWidth_t", "U_flow_ff_predicted_noRetract_t", "U_flow_ff_predicted_noWidth_t")
     for(tsName in buccalTS) {
       finalTimeSeriesData[[tsName]][] <- NA
     }
@@ -2882,6 +2926,61 @@ for(i in 1:nVids) {
       # Protrusion and gape area gaps are filled linearly, and missing ends take the nearest value
     # No eye (triangle videos): neurocranium rotation is set to 0, recorded in V_buccal_neuroIncluded
     # Only videos whose hyoid depression passed the negative check (Hyoid_Max not NA)
+    # Three width models, so the measured flow (PIV) can choose between them. Each has its own buccal volume, rates and predicted flow
+      # Main (no suffix): the bar model above, with retraction and depression
+      # _noRetract: the same bar model with retraction set to 0 (depression only). Retraction dominates the main version's width
+      # _noWidth: no lateral expansion (back of the frustum stays at W_head)
+
+    # Buccal volume, its rates, values at tmax / tmaxVel and predicted flow for one width-expansion series (all strike frames)
+      # Returns values (named like the finalData columns, without the model suffix) and the time series
+    buccalFromWidth <- function(widthExp, areaNow, hNow, protNow, wHead, dHead, ncL, timeNow, tmax, tmaxVel, A_Max,
+                                lambdaRefDerived, spanRef, uFlowAreaFrac) {
+
+      areaBack <- pi * (wHead + widthExp) / 4 * (dHead + hNow)
+      V_t      <- ((ncL + protNow) / 3) * (areaNow + areaBack + sqrt(areaNow * areaBack))
+
+      out <- list(values = c(V_buccal_Max = max(V_t), V_buccal_vel_tmax = NA_real_, V_buccal_vel_tmaxVel = NA_real_,
+                             V_buccal_acc_tmax = NA_real_, V_buccal_acc_tmaxVel = NA_real_,
+                             U_flow_ff_predicted_mean = NA_real_, U_flow_ff_predicted_mean_frames = NA_real_,
+                             U_flow_ff_predicted_mean_full = NA_real_, U_flow_ff_predicted_mean_bigGape = NA_real_),
+                  V_t = V_t, vel_t = NULL, flow_t = NULL)
+
+      nStrike <- length(timeNow)
+      if(nStrike < 10) {
+        return(out)
+      }
+
+      # Same lambda scaling as the other derived series
+      spanNow   <- nStrike - 1
+      lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
+      V_smooth  <- smooth.spline(x = timeNow, y = V_t, lambda = lambdaNow)
+
+      # Rate of change (mm^3/s) and predicted flow = V_buccal_vel / A (mm/s)
+      out$vel_t  <- predict(V_smooth, x = timeNow, deriv = 1)$y
+      out$flow_t <- out$vel_t / areaNow
+
+      # Mean predicted flow from Tstart to tmaxVel, negative values included. NA if tmaxVel is missing or after Tend
+      flowFrames <- which(timeNow <= tmaxVel)
+      if(!is.na(tmaxVel) && tmaxVel <= timeNow[nStrike] && length(flowFrames) > 0) {
+        out$values["U_flow_ff_predicted_mean"]        <- mean(out$flow_t[flowFrames])
+        out$values["U_flow_ff_predicted_mean_frames"] <- length(flowFrames)
+      }
+      # All strike frames (check)
+      out$values["U_flow_ff_predicted_mean_full"] <- mean(out$flow_t)
+      # Only frames with A >= uFlowAreaFrac * A_Max, so small gapes can't dominate
+      bigGapeFrames <- which(areaNow >= uFlowAreaFrac * A_Max)
+      if(length(bigGapeFrames) > 0) {
+        out$values["U_flow_ff_predicted_mean_bigGape"] <- mean(out$flow_t[bigGapeFrames])
+      }
+
+      # Values at tmax and tmaxVel (NA outside Tstart-Tend)
+      out$values["V_buccal_vel_tmax"]    <- predictAt(V_smooth, tmax, 1)
+      out$values["V_buccal_vel_tmaxVel"] <- predictAt(V_smooth, tmaxVel, 1)
+      out$values["V_buccal_acc_tmax"]    <- predictAt(V_smooth, tmax, 2)
+      out$values["V_buccal_acc_tmaxVel"] <- predictAt(V_smooth, tmaxVel, 2)
+
+      out
+    }
 
     bvRows <- which(!is.na(finalData$Hyoid_Max) & !is.na(finalData$Hyoid_depth_source))
 
@@ -3004,15 +3103,6 @@ for(i in 1:nVids) {
         finalData$Width_total_floor_frames[i]    <- sum(totalFloor)
 
 
-      ##### V_buccal_t (mm^3)
-
-        areaBackNow <- pi * (wHead + Buccal_width_expansion_t) / 4 * (dHead + hNow)
-        V_buccal_t  <- ((ncL + protNow) / 3) * (areaNow + areaBackNow + sqrt(areaNow * areaBackNow))
-
-        finalData$V_buccal_Max[i]               <- max(V_buccal_t)
-        finalData$Buccal_width_expansion_Max[i] <- max(Buccal_width_expansion_t)
-
-
       ##### Save time series (strike frames only)
 
         finalTimeSeriesData$Ceratohyal_rotation_angle_t[1, framesNow, i]         <- Ceratohyal_rotation_angle_t
@@ -3020,64 +3110,52 @@ for(i in 1:nVids) {
         finalTimeSeriesData$Ceratohyal_lateral_angle_t[1, framesNow, i]          <- Ceratohyal_lateral_angle_t
         finalTimeSeriesData$Ceratohyal_half_width_t[1, framesNow, i]             <- Ceratohyal_half_width_t
         finalTimeSeriesData$Buccal_width_expansion_t[1, framesNow, i]            <- Buccal_width_expansion_t
-        finalTimeSeriesData$V_buccal_t[1, framesNow, i]                          <- V_buccal_t
 
 
-      ##### Spline on V_buccal: rate of change, values at tmax, predicted flow
+      ##### Alternative width models (see the top of this section)
+        # _noRetract: same bar model and floors, with retraction 0
+        halfWidthNR <- sqrt(pmax(cerL^2 - cerAP0^2 - (cerDV0 + hNow)^2, 0))
+        latHypNR    <- pmax(asin(halfWidthNR / cerL) - cerPsi0, 0)
+        Buccal_width_expansion_noRetract_t <- pmax(2 * cerL * (sin(cerPsi0 + neuroNow + latHypNR) - sin(cerPsi0)), 0)
+        finalData$Buccal_width_expansion_Max_noRetract[i] <- max(Buccal_width_expansion_noRetract_t)
+        finalTimeSeriesData$Buccal_width_expansion_noRetract_t[1, framesNow, i] <- Buccal_width_expansion_noRetract_t
 
-        if(nStrike >= 10) {
+        widthModels <- list(main       = list(width = Buccal_width_expansion_t,           suffix = ""),
+                            noRetract  = list(width = Buccal_width_expansion_noRetract_t, suffix = "_noRetract"),
+                            noWidth    = list(width = rep(0, nStrike),                    suffix = "_noWidth"))
 
-          # Same lambda scaling as the other derived series
-          spanNow   <- nStrike - 1
-          lambdaNow <- lambdaRefDerived * (spanRef / spanNow)^3
 
-          V_buccal_t_smooth <- smooth.spline(x = timeNow, y = V_buccal_t, lambda = lambdaNow)
+      ##### V_buccal_t (mm^3), its rates, values at tmax / tmaxVel and predicted flow, for each width model
 
-          # V_buccal_vel_t (mm^3/s)
-          V_buccal_vel_t <- predict(V_buccal_t_smooth, x = timeNow, deriv = 1)$y
-          finalTimeSeriesData$V_buccal_vel_t[1, framesNow, i] <- V_buccal_vel_t
+        finalData$Buccal_width_expansion_Max[i] <- max(Buccal_width_expansion_t)
 
-          # U_flow_ff_predicted_t (mm/s) = V_buccal_vel / A
-          U_flow_ff_predicted_t <- V_buccal_vel_t / areaNow
-          finalTimeSeriesData$U_flow_ff_predicted_t[1, framesNow, i] <- U_flow_ff_predicted_t
+        for(wm in widthModels) {
 
-          # U_flow_ff_predicted_mean (mm/s): all frames from Tstart to tmaxVel (time of peak measured flow velocity), negative values included
-            # NA if tmaxVel is missing or outside Tstart-Tend
-          flowFramesNow <- which(timeNow <= finalData$tmaxVel[i])
-          if(!is.na(finalData$tmaxVel[i]) && finalData$tmaxVel[i] <= timeNow[nStrike] && length(flowFramesNow) > 0) {
-            finalData$U_flow_ff_predicted_mean[i]        <- mean(U_flow_ff_predicted_t[flowFramesNow])
-            finalData$U_flow_ff_predicted_mean_frames[i] <- length(flowFramesNow)   # frames averaged
+          bv <- buccalFromWidth(wm$width, areaNow, hNow, protNow, wHead, dHead, ncL, timeNow,
+                                finalData$tmax[i], finalData$tmaxVel[i], finalData$A_Max[i],
+                                lambdaRefDerived, spanRef, uFlowAreaFrac)
+
+          for(nm in names(bv$values)) {
+            finalData[[paste0(nm, wm$suffix)]][i] <- bv$values[[nm]]
           }
 
-          # U_flow_ff_predicted_mean_full (mm/s): all strike frames, negative values included. Kept as a check
-          finalData$U_flow_ff_predicted_mean_full[i] <- mean(U_flow_ff_predicted_t)
-
-          # U_flow_ff_predicted_mean_bigGape (mm/s): only frames with A >= uFlowAreaFrac * A_Max, so small gapes can't dominate
-          bigGapeFrames <- which(areaNow >= uFlowAreaFrac * finalData$A_Max[i])
-          if(length(bigGapeFrames) > 0) {
-            finalData$U_flow_ff_predicted_mean_bigGape[i] <- mean(U_flow_ff_predicted_t[bigGapeFrames])
+          # Time series (strike frames only)
+          vNm    <- if(wm$suffix == "") "V_buccal_t" else paste0("V_buccal", wm$suffix, "_t")
+          flowNm <- if(wm$suffix == "") "U_flow_ff_predicted_t" else paste0("U_flow_ff_predicted", wm$suffix, "_t")
+          finalTimeSeriesData[[vNm]][1, framesNow, i] <- bv$V_t
+          if(!is.null(bv$flow_t)) {
+            finalTimeSeriesData[[flowNm]][1, framesNow, i] <- bv$flow_t
           }
-
-          # Values at tmax
-          if(!is.na(finalData$tmax[i]) || !is.na(finalData$tmaxVel[i])) {
-            if(anyInRange(c(finalData$tmax[i], finalData$tmaxVel[i]), timeNow[c(1, nStrike)])) {
-
-              # V_buccal_vel_tmax (mm^3/s)
-              finalData$V_buccal_vel_tmax[i]    <- predictAt(V_buccal_t_smooth, finalData$tmax[i], 1)
-              finalData$V_buccal_vel_tmaxVel[i] <- predictAt(V_buccal_t_smooth, finalData$tmaxVel[i], 1)
-
-              # V_buccal_acc_tmax (mm^3/s^2)
-              finalData$V_buccal_acc_tmax[i]    <- predictAt(V_buccal_t_smooth, finalData$tmax[i], 2)
-              finalData$V_buccal_acc_tmaxVel[i] <- predictAt(V_buccal_t_smooth, finalData$tmaxVel[i], 2)
-
-            }
-            if(!is.na(finalData$tmax[i]) && is.na(finalData$V_buccal_vel_tmax[i])) {
-              skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Values at tmax not calculated: tmax outside Tstart-Tend")
-            }
+          if(wm$suffix == "" && !is.null(bv$vel_t)) {
+            finalTimeSeriesData$V_buccal_vel_t[1, framesNow, i] <- bv$vel_t
           }
+        }
 
-        } else {
+        # Logged once (the same for every width model)
+        if(nStrike < 10) {
           skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Fewer than 10 strike frames: no buccal volume rates")
+        } else if(!is.na(finalData$tmax[i]) && is.na(finalData$V_buccal_vel_tmax[i])) {
+          skippedVids <- addSkip(skippedVids, fileNames2[i], "Buccal volume", "Values at tmax not calculated: tmax outside Tstart-Tend")
         }
 
         NULL
@@ -3129,6 +3207,14 @@ for(i in 1:nVids) {
   print(tapply(finalData$Width_total_floor_frames / strikeFramesN, finalData$Hyoid_depth_source, summary))
       # Videos where hyoid depression is longer than Ceratohyal_length in some frames (logged as warnings in skippedVids)
   print(tapply(finalData$Hyoid_beyond_ceratohyal_frames > 0, finalData$Hyoid_depth_source, mean, na.rm = TRUE))
+
+    # The three width models (main, _noRetract, _noWidth)
+      # Width expansion as a fraction of W_head (median and quartiles)
+  print(sapply(c(main = "Buccal_width_expansion_Max", noRetract = "Buccal_width_expansion_Max_noRetract"),
+               function(colNow) quantile(finalData[[colNow]] / finalData$W_head, c(0.25, 0.5, 0.75), na.rm = TRUE)))
+      # Big-gape predicted flow from each (mm/s). Compare with the measured flow once the PIV script has run
+  print(sapply(c(main = "U_flow_ff_predicted_mean_bigGape", noRetract = "U_flow_ff_predicted_mean_bigGape_noRetract",
+                 noWidth = "U_flow_ff_predicted_mean_bigGape_noWidth"), function(colNow) summary(finalData[[colNow]])))
 
     # U_flow_ff_predicted: the mean used (Tstart to tmaxVel) vs. the checks   ### CHECK
   print(summary(finalData$U_flow_ff_predicted_mean))
