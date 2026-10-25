@@ -161,6 +161,20 @@ rm(list=ls())
     }
 
 
+    # Matching key for PIV video names, so small naming differences between the PIV files and the data sheet still match
+      # Removes the take number at the end (_000000, _000001, ...), collapses doubled underscores ("__A9.10.02" = "_A9.10.02"),
+      # then applies the fixes in pivNameFixes (old text = new text) for typos that can't be caught by a rule
+    pivNameFixes <- c("_2.8_11.11_" = "_8.11.11_")   ### CHANGE  keep the same as in the kinematics script
+    pivKey <- function(x) {
+      x <- sub("_[0-9]{6}$", "", as.character(x))
+      x <- gsub("_+", "_", x)
+      for(k in seq_along(pivNameFixes)) {
+        x <- gsub(names(pivNameFixes)[k], pivNameFixes[[k]], x, fixed = TRUE)
+      }
+      x
+    }
+
+
     # Add a row to the skipped log
     addSkip <- function(skippedLog, vidName, section, reason) {
       rbind(skippedLog, data.frame(vidName = vidName, section = section, reason = reason))
@@ -175,9 +189,9 @@ rm(list=ls())
   kinTS <- readRDS(kinTimeSeries)
 
   pivFiltered <- read_excel(pivFilteredFile)
-  pivFiltered$videoShort <- sub("_0{5,6}$", "", pivFiltered$video)   # same trimming as the kinematics script (the data sheet has no _000000)
+  pivFiltered$videoKey <- pivKey(pivFiltered$video)
   pivResults  <- read_excel(pivResultsFile)
-  pivResults$videoShort  <- sub("_0{5,6}$", "", pivResults$video)
+  pivResults$videoKey  <- pivKey(pivResults$video)
 
   # PIV name for each kinematic video
   if(!("PIV.filename" %in% names(kin))) {
@@ -226,7 +240,7 @@ rm(list=ls())
         next   # no PIV for this video
       }
       # Included only if it's in the consistency-filtered results
-      filtRowNow <- which(pivFiltered$videoShort == kin$PIV.filename[i])
+      filtRowNow <- which(pivFiltered$videoKey == pivKey(kin$PIV.filename[i]))
       if(length(filtRowNow) == 0) {
         next   # not in the filtered PIV results, or no PIV for this video
       }
@@ -238,7 +252,7 @@ rm(list=ls())
       flowData$pivVideo[i] <- pivNow$video
 
       # Peak node positions (px) from the all-passed results. NA if the video isn't there (then no node distances or static correction)
-      posRowNow <- which(pivResults$videoShort == kin$PIV.filename[i])
+      posRowNow <- which(pivResults$videoKey == pivKey(kin$PIV.filename[i]))
       if(length(posRowNow) == 1) {
         for(colNow in c("max_velocity_x_px", "max_velocity_y_px", "pressure_peak_x_px", "pressure_peak_y_px")) {
           pivNow[[colNow]] <- pivResults[[colNow]][posRowNow]
