@@ -364,9 +364,9 @@ rm(list=ls())
           velRaw$static <- velRaw$staticRaw * mullerFactor
           flowTS$Muller_factor_t[i, 1:nNow] <- mullerFactor
 
-          strikeK <- kin$startFrame[i]:kin$endFrame[i]
-          if(!any(is.na(strikeK))) {
-            flowData$static_corrected_frac[i] <- mean(!is.na(mullerFactor[strikeK]))
+          # Videos with no strike (no Tstart / Tend) have no strike frames
+          if(!is.na(kin$startFrame[i]) && !is.na(kin$endFrame[i])) {
+            flowData$static_corrected_frac[i] <- mean(!is.na(mullerFactor[kin$startFrame[i]:kin$endFrame[i]]))
           }
         }
       }
