@@ -607,6 +607,7 @@ finalData <- data.frame(vidName = fileNames2,
                         Relative_tmaxVel = rep(NA_real_, nVids),
                         Kinetic_Synchronization = rep(NA_real_, nVids),
                         Mandible_tip_dist_rest = rep(NA_real_, nVids),
+                        Nasal_LJ_closed_video = rep(NA_real_, nVids),
                         Oral_theta2_tmax = rep(NA_real_, nVids),
                         Oral_theta2_tmaxVel = rep(NA_real_, nVids),
                         Oral_theta3_tmax = rep(NA_real_, nVids),
@@ -1014,14 +1015,15 @@ print(length(unique(finalData$Unique.ID)))
         Maxilla_length             = "Maxilla_length",           ### CHANGE  coupler link
         Maxilla_palatine_length    = "Maxilla_palatine_length",  ### CHANGE  output link: dorsal maxilla tip to anterior palatine tip
         Oral_fixed_length          = "Oral_fixed_length",        ### CHANGE  fixed link: quadrate-mandible joint to anterior palatine tip
-        Oral_theta2_rest           = "Oral_theta2_rest",         ### CHANGE
+        Oral_theta2_rest_scan      = "Oral_theta2_rest",         ### CHANGE  as scanned (mouth possibly open). Corrected to closed after the loop
+        Nasal_mandtip_dist         = "Nasal_mandtip_dist",       ### CHANGE  nasal tip to mandible tip at rest, side view (mouth-opening correction)
         # Opercular four-bar
         Operculum_length           = "Operculum_length",         ### CHANGE  input link
         IOP_length                 = "IOP_length",               ### CHANGE  coupler part 1
         IOP_ligament_length        = "IOP_ligament_length",      ### CHANGE  coupler part 2
         RA_process_length          = "RA_process_length",        ### CHANGE  output link
         Opercular_fixed_length     = "Opercular_fixed_length",   ### CHANGE  fixed link
-        Opercular_theta2_rest      = "Opercular_theta2_rest",    ### CHANGE
+        Opercular_theta2_rest_scan = "Opercular_theta2_rest",    ### CHANGE  as scanned (mouth possibly open). Corrected to closed after the loop
         Opercular_theta4_rest_scan = "Opercular_theta4_rest"     ### CHANGE  delete this line if theta4_rest isn't measured in the scans
       )
     
@@ -1093,7 +1095,7 @@ print(length(unique(finalData$Unique.ID)))
         scanAnglesInDegrees <- FALSE   ### CHANGE to TRUE if the scan angles are in degrees (Scan_measurements_from_landmarks.R saves radians)
         
         if(scanAnglesInDegrees) {
-          angleCols <- intersect(c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest_scan"), names(finalData))
+          angleCols <- intersect(c("Oral_theta2_rest_scan", "Opercular_theta2_rest_scan", "Opercular_theta4_rest_scan"), names(finalData))
           for(colNow in angleCols) {
             finalData[[colNow]] <- finalData[[colNow]] * pi / 180
           }
@@ -1115,6 +1117,9 @@ print(length(unique(finalData$Unique.ID)))
         finalData$IOP_link_length <- finalData$IOP_length + finalData$IOP_ligament_length
         
         
+        # Resting angles, static KT and the four-bar values at tmax / tmaxVel are calculated after the loop (Four-bar systems),
+          # after the scan's resting angles are corrected for a slightly open mouth
+
         # Link ratios
         finalData$Oral_input_ratio        <- finalData$Mandible_input_length / finalData$Oral_fixed_length
         finalData$Oral_coupler_ratio      <- finalData$Maxilla_length / finalData$Oral_fixed_length
@@ -1124,41 +1129,6 @@ print(length(unique(finalData$Unique.ID)))
         finalData$Opercular_output_ratio  <- finalData$RA_process_length / finalData$Opercular_fixed_length
         
         
-        # Resting angles from the four-bar model
-        finalData$Oral_theta3_rest <- fourBarTheta3(finalData$Oral_theta2_rest,
-                                                    finalData$Mandible_input_length, finalData$Maxilla_length,
-                                                    finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
-        
-        finalData$Opercular_theta4_rest <- fourBarTheta4(finalData$Opercular_theta2_rest,
-                                                         finalData$Operculum_length, finalData$IOP_link_length,
-                                                         finalData$RA_process_length, finalData$Opercular_fixed_length)
-        
-        
-        # Output angles at the static input rotations
-        finalData$Oral_theta3_30 <- fourBarTheta3(finalData$Oral_theta2_rest + oralOpenSign * oralStaticAngle,
-                                                  finalData$Mandible_input_length, finalData$Maxilla_length,
-                                                  finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
-        
-        finalData$Opercular_theta4_10 <- fourBarTheta4(finalData$Opercular_theta2_rest + opercularOpenSign * opercularStaticAngle,
-                                                       finalData$Operculum_length, finalData$IOP_link_length,
-                                                       finalData$RA_process_length, finalData$Opercular_fixed_length)
-        
-        
-        # Static KT (average output rotation / input rotation, from rest to the static input angle)
-        finalData$Oral_4bar_KT      <- wrapAngle(finalData$Oral_theta3_30 - finalData$Oral_theta3_rest) / (oralOpenSign * oralStaticAngle)
-        finalData$Opercular_4bar_KT <- wrapAngle(finalData$Opercular_theta4_10 - finalData$Opercular_theta4_rest) / (opercularOpenSign * opercularStaticAngle)
-        
-        
-        # Checks
-          # Individuals whose linkage can't close (NaN). The link lengths or resting angle need checking
-        print(unique(finalData$Unique.ID[is.nan(finalData$Oral_theta3_rest) | is.nan(finalData$Oral_theta3_30)]))
-        print(unique(finalData$Unique.ID[is.nan(finalData$Opercular_theta4_rest) | is.nan(finalData$Opercular_theta4_10)]))
-        
-          # Calculated vs. scanned theta4_rest, in degrees. Should be close to 0
-        if("Opercular_theta4_rest_scan" %in% names(finalData)) {
-          finalData$Opercular_theta4_rest_diff <- wrapAngle(finalData$Opercular_theta4_rest - finalData$Opercular_theta4_rest_scan)
-          print(summary(finalData$Opercular_theta4_rest_diff * 180 / pi))
-        }
         
         
     
@@ -1198,6 +1168,10 @@ print(length(unique(finalData$Unique.ID)))
   # Hyoid
   hyoidNegTolerance <- 0    ### CHANGE  how far below 0 (mm) depression can go before it counts as negative. Raise if tracking noise trips the flag
   betaMinFrames     <- 50   ### CHANGE  minimum number of eye-based strike frames needed to fit the pooled retraction-to-depression ratio
+
+  # Mouth-opening correction of the scan's four-bar resting angles
+  closedFramesN  <- 5      ### CHANGE  frames at the start of each video averaged (median) for the closed Nasal-LJ distance
+  closedQuantile <- 0.25   ### CHANGE  quantile across a fish's videos taken as its closed Nasal-LJ distance
 
   # Buccal volume
   uFlowAreaFrac <- 0.5      ### CHANGE  big-gape mean of U_flow_ff_predicted only uses frames where A >= this fraction of A_Max
@@ -1773,6 +1747,11 @@ for(i in 1:nVids) {
                 #save it to the final array
               finalTimeSeriesData$Mandible_tip_disp_t[1, 1:length(Mandible_tip_disp_t), i] <- Mandible_tip_disp_t
               finalData$Mandible_tip_dist_rest[i] <- nasalLJ_t[firstMandFrame]
+
+              # Nasal_LJ_closed_video (mm): median Nasal-LJ distance over the first 5 tracked frames before Tstart (mouth closed)
+                # Used after the loop to find how far open the mouth is in the scan
+              closedFrames <- head(which(complete.cases(dfTemp) & timeSeriesNow <= finalData$Tstart[i]), closedFramesN)
+              finalData$Nasal_LJ_closed_video[i] <- median(nasalLJ_t[closedFrames])
               
               
               
@@ -1929,47 +1908,6 @@ for(i in 1:nVids) {
           
           
           
-        ######################
-        # Oral 4-bar at tmax #
-        ######################
-          # Input angle at tmax = resting input angle + measured mandible rotation
-          # Same again at tmaxVel (second block)
-        
-          if(!is.na(finalData$Mandible_ang_tmax[i]) && !is.na(finalData$Oral_theta2_rest[i])) {
-            
-            oralIn  <- finalData$Mandible_input_length[i]
-            oralCp  <- finalData$Maxilla_length[i]
-            oralOut <- finalData$Maxilla_palatine_length[i]
-            oralFx  <- finalData$Oral_fixed_length[i]
-            
-            finalData$Oral_theta2_tmax[i] <- finalData$Oral_theta2_rest[i] + oralOpenSign * finalData$Mandible_ang_tmax[i]
-            finalData$Oral_theta3_tmax[i] <- fourBarTheta3(finalData$Oral_theta2_tmax[i], oralIn, oralCp, oralOut, oralFx)
-            finalData$Oral_theta4_tmax[i] <- fourBarTheta4(finalData$Oral_theta2_tmax[i], oralIn, oralCp, oralOut, oralFx)
-            
-            # Oral_KT_tmax (instantaneous d theta3 / d theta2)
-            finalData$Oral_KT_tmax[i] <- fourBarKTinst(finalData$Oral_theta2_tmax[i], oralIn, oralCp, oralOut, oralFx, output = "theta3")
-            
-            # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest)
-            finalData$Maxilla_ang_predicted_tmax[i] <- wrapAngle(finalData$Oral_theta3_tmax[i] - finalData$Oral_theta3_rest[i])
-          }
-
-          if(!is.na(finalData$Mandible_ang_tmaxVel[i]) && !is.na(finalData$Oral_theta2_rest[i])) {
-            
-            oralIn  <- finalData$Mandible_input_length[i]
-            oralCp  <- finalData$Maxilla_length[i]
-            oralOut <- finalData$Maxilla_palatine_length[i]
-            oralFx  <- finalData$Oral_fixed_length[i]
-            
-            finalData$Oral_theta2_tmaxVel[i] <- finalData$Oral_theta2_rest[i] + oralOpenSign * finalData$Mandible_ang_tmaxVel[i]
-            finalData$Oral_theta3_tmaxVel[i] <- fourBarTheta3(finalData$Oral_theta2_tmaxVel[i], oralIn, oralCp, oralOut, oralFx)
-            finalData$Oral_theta4_tmaxVel[i] <- fourBarTheta4(finalData$Oral_theta2_tmaxVel[i], oralIn, oralCp, oralOut, oralFx)
-            
-            # Oral_KT_tmax (instantaneous d theta3 / d theta2)
-            finalData$Oral_KT_tmaxVel[i] <- fourBarKTinst(finalData$Oral_theta2_tmaxVel[i], oralIn, oralCp, oralOut, oralFx, output = "theta3")
-            
-            # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest)
-            finalData$Maxilla_ang_predicted_tmaxVel[i] <- wrapAngle(finalData$Oral_theta3_tmaxVel[i] - finalData$Oral_theta3_rest[i])
-          }
 
           
           
@@ -2684,47 +2622,6 @@ for(i in 1:nVids) {
           
           
             
-        ###########################
-        # Opercular 4-bar at tmax #
-        ###########################
-          # Input angle at tmax = resting input angle + measured neurocranium rotation (proxy for opercular rotation)
-          # Same again at tmaxVel (second block)
-        
-          if(!is.na(finalData$Neurocranium_rotation_tmax[i]) && !is.na(finalData$Opercular_theta2_rest[i])) {
-            
-            operIn  <- finalData$Operculum_length[i]
-            operCp  <- finalData$IOP_link_length[i]
-            operOut <- finalData$RA_process_length[i]
-            operFx  <- finalData$Opercular_fixed_length[i]
-            
-            finalData$Opercular_theta2_tmax[i] <- finalData$Opercular_theta2_rest[i] + opercularOpenSign * finalData$Neurocranium_rotation_tmax[i]
-            finalData$Opercular_theta3_tmax[i] <- fourBarTheta3(finalData$Opercular_theta2_tmax[i], operIn, operCp, operOut, operFx)
-            finalData$Opercular_theta4_tmax[i] <- fourBarTheta4(finalData$Opercular_theta2_tmax[i], operIn, operCp, operOut, operFx)
-            
-            # Opercular_KT_tmax (instantaneous d theta4 / d theta2)
-            finalData$Opercular_KT_tmax[i] <- fourBarKTinst(finalData$Opercular_theta2_tmax[i], operIn, operCp, operOut, operFx, output = "theta4")
-            
-            # Mandible_ang_predicted_tmax (radians, change in theta4 from rest)
-            finalData$Mandible_ang_predicted_tmax[i] <- wrapAngle(finalData$Opercular_theta4_tmax[i] - finalData$Opercular_theta4_rest[i])
-          }
-
-          if(!is.na(finalData$Neurocranium_rotation_tmaxVel[i]) && !is.na(finalData$Opercular_theta2_rest[i])) {
-            
-            operIn  <- finalData$Operculum_length[i]
-            operCp  <- finalData$IOP_link_length[i]
-            operOut <- finalData$RA_process_length[i]
-            operFx  <- finalData$Opercular_fixed_length[i]
-            
-            finalData$Opercular_theta2_tmaxVel[i] <- finalData$Opercular_theta2_rest[i] + opercularOpenSign * finalData$Neurocranium_rotation_tmaxVel[i]
-            finalData$Opercular_theta3_tmaxVel[i] <- fourBarTheta3(finalData$Opercular_theta2_tmaxVel[i], operIn, operCp, operOut, operFx)
-            finalData$Opercular_theta4_tmaxVel[i] <- fourBarTheta4(finalData$Opercular_theta2_tmaxVel[i], operIn, operCp, operOut, operFx)
-            
-            # Opercular_KT_tmax (instantaneous d theta4 / d theta2)
-            finalData$Opercular_KT_tmaxVel[i] <- fourBarKTinst(finalData$Opercular_theta2_tmaxVel[i], operIn, operCp, operOut, operFx, output = "theta4")
-            
-            # Mandible_ang_predicted_tmax (radians, change in theta4 from rest)
-            finalData$Mandible_ang_predicted_tmaxVel[i] <- wrapAngle(finalData$Opercular_theta4_tmaxVel[i] - finalData$Opercular_theta4_rest[i])
-          }
           
 
 
@@ -3208,6 +3105,161 @@ for(i in 1:nVids) {
         
   
         
+#####################################################
+# Four-bar systems (after the loop)                 #
+#####################################################
+  # Here rather than before the loop, because the mouth-opening correction needs the closed Nasal-LJ distance from all of a fish's videos
+  # Every video is redone each run (also in "unprocessed" mode)
+
+  ##### Mouth opening in the scan
+    # Same triangle as Mandible_ang: Nasal - jaw joint - LJ, with Nasal_QMJ_dist and Mandible_length from the scans
+    # Closed Nasal-LJ distance for each fish (Nasal_LJ_closed) = closedQuantile of Nasal_LJ_closed_video across its videos
+    # Scan Nasal-LJ distance = Nasal_mandtip_dist (side view)
+    # Mouth_open_angle = scan triangle angle - closed triangle angle (radians). Positive = mouth open in the scan
+    # The scan's resting angles are corrected to a closed mouth:
+      # Oral: the mandible is the input link, so Oral_theta2_rest = Oral_theta2_rest_scan - oralOpenSign * Mouth_open_angle
+      # Opercular: the mandible is the output link, so its resting theta4 is the scan's theta4 minus the same rotation (same angle convention),
+        # and Opercular_theta2_rest is solved from the linkage for that theta4 (the operculum moves with the jaw through the IOP)
+    # Fish with no closed distance (no tracked Nasal and LJ before Tstart) keep the scan values. Mouth_open_corrected records which
+
+    # Closed distance for each fish
+    closedByFish <- tapply(finalData$Nasal_LJ_closed_video, finalData$Unique.ID,
+                           function(x) if(all(is.na(x))) NA_real_ else quantile(x, probs = closedQuantile, na.rm = TRUE, names = FALSE))
+    finalData$Nasal_LJ_closed <- as.numeric(closedByFish[finalData$Unique.ID])
+
+    # Triangle angle at the jaw joint for a Nasal-LJ distance (radians). NA if the triangle is impossible
+    jawTriAngle <- function(nasalLJ, nasalJoint, jawLength) {
+      cosNow <- (nasalJoint^2 + jawLength^2 - nasalLJ^2) / (2 * nasalJoint * jawLength)
+      ifelse(abs(cosNow) <= 1, acos(pmin(pmax(cosNow, -1), 1)), NA_real_)
+    }
+
+    finalData$Mouth_open_angle <- jawTriAngle(finalData$Nasal_mandtip_dist, finalData$Nasal_QMJ_dist, finalData$Mandible_length) -
+                                  jawTriAngle(finalData$Nasal_LJ_closed,    finalData$Nasal_QMJ_dist, finalData$Mandible_length)
+    finalData$Mouth_open_corrected <- !is.na(finalData$Mouth_open_angle)
+
+    openNow <- ifelse(finalData$Mouth_open_corrected, finalData$Mouth_open_angle, 0)
+
+    # Oral four-bar: input link is the mandible
+    finalData$Oral_theta2_rest <- finalData$Oral_theta2_rest_scan - oralOpenSign * openNow
+
+    # Opercular four-bar: output link is the mandible
+      # Resting theta4 at the scanned theta2, rotated back by the mouth opening, then theta2 solved for it (Newton's method, using the instantaneous KT)
+    operIn  <- finalData$Operculum_length
+    operCp  <- finalData$IOP_link_length
+    operOut <- finalData$RA_process_length
+    operFx  <- finalData$Opercular_fixed_length
+
+    theta4Closed <- fourBarTheta4(finalData$Opercular_theta2_rest_scan, operIn, operCp, operOut, operFx) - oralOpenSign * openNow
+    theta2Now    <- finalData$Opercular_theta2_rest_scan
+    for(iterNow in 1:20) {
+      theta4Now <- fourBarTheta4(theta2Now, operIn, operCp, operOut, operFx)
+      ktNow     <- fourBarKTinst(theta2Now, operIn, operCp, operOut, operFx, output = "theta4")
+      theta2Now <- theta2Now - wrapAngle(theta4Now - theta4Closed) / ktNow
+    }
+    # Not converged (or the linkage can't reach that theta4) = NA
+    solvedOK <- abs(wrapAngle(fourBarTheta4(theta2Now, operIn, operCp, operOut, operFx) - theta4Closed)) < 1e-8
+    finalData$Opercular_theta2_rest <- ifelse(solvedOK %in% TRUE, theta2Now, NA_real_)
+
+    # The scanned theta4 is corrected the same way, for the check below
+    finalData$Opercular_theta4_rest_scan <- finalData$Opercular_theta4_rest_scan - oralOpenSign * openNow
+
+
+    # Checks
+      # Mouth opening in the scans, degrees (one row per fish). Mostly small and positive if the scans are close to closed
+    scanRowsMouth <- !duplicated(finalData$Unique.ID)
+    print(summary(finalData$Mouth_open_angle[scanRowsMouth] * 180 / pi))
+      # Fish whose rest angles couldn't be corrected (kept as scanned)
+    print(unique(finalData$Unique.ID[!finalData$Mouth_open_corrected & !is.na(finalData$Oral_theta2_rest_scan)]))
+      # Fish whose opercular theta2 couldn't be solved
+    print(unique(finalData$Unique.ID[is.na(finalData$Opercular_theta2_rest) & !is.na(finalData$Opercular_theta2_rest_scan)]))
+      # Spread of the closed distances across each fish's videos (mm). A wide spread = open first frames or a fish turned from the camera
+    closedSpread <- tapply(finalData$Nasal_LJ_closed_video, finalData$Unique.ID, function(x) diff(range(x, na.rm = TRUE)))
+    print(summary(closedSpread[is.finite(closedSpread)]))
+    print(head(sort(closedSpread[is.finite(closedSpread)], decreasing = TRUE), 10))
+
+
+    # Resting angles from the four-bar model
+    finalData$Oral_theta3_rest <- fourBarTheta3(finalData$Oral_theta2_rest,
+                                                finalData$Mandible_input_length, finalData$Maxilla_length,
+                                                finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
+    
+    finalData$Opercular_theta4_rest <- fourBarTheta4(finalData$Opercular_theta2_rest,
+                                                     finalData$Operculum_length, finalData$IOP_link_length,
+                                                     finalData$RA_process_length, finalData$Opercular_fixed_length)
+    
+    
+    # Output angles at the static input rotations
+    finalData$Oral_theta3_30 <- fourBarTheta3(finalData$Oral_theta2_rest + oralOpenSign * oralStaticAngle,
+                                              finalData$Mandible_input_length, finalData$Maxilla_length,
+                                              finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
+    
+    finalData$Opercular_theta4_10 <- fourBarTheta4(finalData$Opercular_theta2_rest + opercularOpenSign * opercularStaticAngle,
+                                                   finalData$Operculum_length, finalData$IOP_link_length,
+                                                   finalData$RA_process_length, finalData$Opercular_fixed_length)
+    
+    
+    # Static KT (average output rotation / input rotation, from rest to the static input angle)
+    finalData$Oral_4bar_KT      <- wrapAngle(finalData$Oral_theta3_30 - finalData$Oral_theta3_rest) / (oralOpenSign * oralStaticAngle)
+    finalData$Opercular_4bar_KT <- wrapAngle(finalData$Opercular_theta4_10 - finalData$Opercular_theta4_rest) / (opercularOpenSign * opercularStaticAngle)
+    
+    
+    # Checks
+      # Individuals whose linkage can't close (NaN). The link lengths or resting angle need checking
+    print(unique(finalData$Unique.ID[is.nan(finalData$Oral_theta3_rest) | is.nan(finalData$Oral_theta3_30)]))
+    print(unique(finalData$Unique.ID[is.nan(finalData$Opercular_theta4_rest) | is.nan(finalData$Opercular_theta4_10)]))
+    
+      # Calculated vs. scanned theta4_rest, in degrees. Should be close to 0
+    if("Opercular_theta4_rest_scan" %in% names(finalData)) {
+      finalData$Opercular_theta4_rest_diff <- wrapAngle(finalData$Opercular_theta4_rest - finalData$Opercular_theta4_rest_scan)
+      print(summary(finalData$Opercular_theta4_rest_diff * 180 / pi))
+    }
+
+
+  ##### Four-bar values at tmax and tmaxVel
+    # Oral: input angle = resting input angle + measured mandible rotation
+    # Opercular: input angle = resting input angle + measured neurocranium rotation (proxy for opercular rotation)
+    # NA wherever the rotation or a scan value is missing
+
+    oralIn  <- finalData$Mandible_input_length
+    oralCp  <- finalData$Maxilla_length
+    oralOut <- finalData$Maxilla_palatine_length
+    oralFx  <- finalData$Oral_fixed_length
+
+    # Oral four-bar at tmax
+    finalData$Oral_theta2_tmax <- finalData$Oral_theta2_rest + oralOpenSign * finalData$Mandible_ang_tmax
+    finalData$Oral_theta3_tmax <- fourBarTheta3(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx)
+    finalData$Oral_theta4_tmax <- fourBarTheta4(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx)
+    # Oral_KT_tmax (instantaneous d theta3 / d theta2)
+    finalData$Oral_KT_tmax <- fourBarKTinst(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx, output = "theta3")
+    # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest)
+    finalData$Maxilla_ang_predicted_tmax <- wrapAngle(finalData$Oral_theta3_tmax - finalData$Oral_theta3_rest)
+
+    # Oral four-bar at tmaxVel
+    finalData$Oral_theta2_tmaxVel <- finalData$Oral_theta2_rest + oralOpenSign * finalData$Mandible_ang_tmaxVel
+    finalData$Oral_theta3_tmaxVel <- fourBarTheta3(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx)
+    finalData$Oral_theta4_tmaxVel <- fourBarTheta4(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx)
+    finalData$Oral_KT_tmaxVel <- fourBarKTinst(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx, output = "theta3")
+    finalData$Maxilla_ang_predicted_tmaxVel <- wrapAngle(finalData$Oral_theta3_tmaxVel - finalData$Oral_theta3_rest)
+
+    # Opercular four-bar at tmax
+    finalData$Opercular_theta2_tmax <- finalData$Opercular_theta2_rest + opercularOpenSign * finalData$Neurocranium_rotation_tmax
+    finalData$Opercular_theta3_tmax <- fourBarTheta3(finalData$Opercular_theta2_tmax, operIn, operCp, operOut, operFx)
+    finalData$Opercular_theta4_tmax <- fourBarTheta4(finalData$Opercular_theta2_tmax, operIn, operCp, operOut, operFx)
+    # Opercular_KT_tmax (instantaneous d theta4 / d theta2)
+    finalData$Opercular_KT_tmax <- fourBarKTinst(finalData$Opercular_theta2_tmax, operIn, operCp, operOut, operFx, output = "theta4")
+    # Mandible_ang_predicted_tmax (radians, change in theta4 from rest)
+    finalData$Mandible_ang_predicted_tmax <- wrapAngle(finalData$Opercular_theta4_tmax - finalData$Opercular_theta4_rest)
+
+    # Opercular four-bar at tmaxVel
+    finalData$Opercular_theta2_tmaxVel <- finalData$Opercular_theta2_rest + opercularOpenSign * finalData$Neurocranium_rotation_tmaxVel
+    finalData$Opercular_theta3_tmaxVel <- fourBarTheta3(finalData$Opercular_theta2_tmaxVel, operIn, operCp, operOut, operFx)
+    finalData$Opercular_theta4_tmaxVel <- fourBarTheta4(finalData$Opercular_theta2_tmaxVel, operIn, operCp, operOut, operFx)
+    finalData$Opercular_KT_tmaxVel <- fourBarKTinst(finalData$Opercular_theta2_tmaxVel, operIn, operCp, operOut, operFx, output = "theta4")
+    finalData$Mandible_ang_predicted_tmaxVel <- wrapAngle(finalData$Opercular_theta4_tmaxVel - finalData$Opercular_theta4_rest)
+
+
+
+
 #########################################
 # Range of motion (per individual fish) #
 #########################################

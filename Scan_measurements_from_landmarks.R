@@ -226,7 +226,7 @@ rm(list=ls())
     # Widths
     "W_jaw", "W_jaw_joint", "W_nasal", "W_head",
     # Mandible triangle (side-view lengths, by the List_of_landmarks.docx formulas)
-    "Mandible_length", "Nasal_QMJ_dist",
+    "Mandible_length", "Nasal_QMJ_dist", "Nasal_mandtip_dist",
     # Hyoid and buccal volume
     "D_head", "D_head_backup", "Nasal_eye_AP_length", "Hyoid_rest_AP", "Hyoid_rest_depth",
     "Ceratohyal_length", "Ceratohyal_AP_rest", "Ceratohyal_DV_rest",
@@ -358,6 +358,10 @@ rm(list=ls())
       # Nasal_QMJ_dist = sqrt(hypotenuse^2 - ((W_jaw_joint - W_nasal)/2)^2): left nasal tip to left joint, without the side-to-side gap between them
       scanMeas$Nasal_QMJ_dist_3D[i] <- dist3D(lmk("nasalL"), jointL)
       scanMeas$Nasal_QMJ_dist[i]    <- sqrt(scanMeas$Nasal_QMJ_dist_3D[i]^2 - ((scanMeas$W_jaw_joint[i] - scanMeas$W_nasal[i]) / 2)^2)
+
+      # Nasal_mandtip_dist: nasal tip to mandible tip, side view. With the closed distance from the videos, the kinematics script uses it
+        # to measure how far open the mouth is in the scan and correct the four-bar resting angles
+      scanMeas$Nasal_mandtip_dist[i] <- distSide(lmk("nasalL"), lmk("mandTip"))
 
 
     ##### Hyoid and buccal volume
