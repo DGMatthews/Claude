@@ -41,6 +41,14 @@ if(!file.exists(script3)) {
   pivFiltered <- read_excel(pivFilteredFile)
   pivFiltered$videoKey <- pivKey(pivFiltered$video)
 
+  # PIV name for each kinematic video. Kinematics output from before PIV.filename was saved: from the data sheet, as script 3 does
+  if(!("PIV.filename" %in% names(kin))) {
+    vidDataTemp <- read.csv(dataSheet, stringsAsFactors = FALSE)
+    vidData     <- vidDataTemp[which(vidDataTemp$Generation == 'F2' & vidDataTemp$Event != '-'), ]   # same filter as the kinematics script
+    kin$PIV.filename <- as.character(vidData$PIV.filename[kin$equivVidRow])
+    print("Kinematics output has no PIV.filename column (made before 25 Oct): PIV names taken from the data sheet. Rerun script 2 to update it")
+  }
+
   kin$pivRow <- match(pivKey(kin$PIV.filename), pivFiltered$videoKey)
   candidates <- which(!is.na(kin$pivRow) & !is.na(kin$Tstart) & !is.na(kin$nFrames))
   checkRows  <- candidates[sample(length(candidates), min(nCheck, length(candidates)))]
