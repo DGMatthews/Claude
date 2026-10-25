@@ -40,9 +40,10 @@ rm(list=ls())
   # Per fish, for fish with no strike that has pressure
   fishNoPressure <- "largestGape"   ### CHANGE  "largestGape" (use the strike with the largest A_Max) or "drop" (leave the fish out)
 
-  # Prey_num is an ordered categorical variable. Its levels, lowest to highest
-    # NULL = the values found, in numeric order (or alphabetical if they aren't numbers)
-  preyLevels <- NULL   ### CHECK  e.g. c("1", "2", "3") if a different order or a level that never occurs is needed
+  # Prey_num is an ordered categorical variable. Its levels, lowest to highest, as written in the data sheet
+    # Matching ignores capitals and spaces at either end ("Few " = "few")
+    # The script stops if the sheet has a value that isn't in this list
+  preyLevels <- c("one", "few", "several", "many")   ### CHECK  spelling in the data sheet
 
   # Which epaxial cross-section is Epaxial_CSA
   epaxialSection <- "crest"    ### CHANGE  "crest" (highest point of the supraoccipital crest) or "flat" (where the neurocranium flattens out)
@@ -189,7 +190,7 @@ rm(list=ls())
   # Stop if any expected column is missing from the inputs (a name changed in an earlier script)
   missingKin  <- setdiff(c(as.vector(outer(timeVarsKin, c("_tmax", "_tmaxVel"), paste0)),
                            as.vector(outer(timeVarsBuccal, c("_tmax", "_tmaxVel"), function(a, b) paste0(a, b, widthSuffix))),
-                           "Hyoid_tmax_filled", "Hyoid_tmaxVel_filled",
+                           "Hyoid_tmax_filled", "Hyoid_tmaxVel_filled", "tmax", "tmaxVel", "Tstart",
                            setdiff(strikeVars, names(effortCols)), paste0(strikeVarsBuccal, widthSuffix), fishVars, flagVars),
                          names(kin))
   missingFlow <- setdiff(c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0))), flowName(strikeVarsFlow), "Max_sub_pressure"),
@@ -209,6 +210,8 @@ rm(list=ls())
     for(v in timeVarsBuccal) out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow, widthSuffix)]]
     for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow))]][flowRow]
     out$Hyoid_tmax_filled <- kin[[paste0("Hyoid_", timeNow, "_filled")]]
+    # Time of tmax (or tmaxVel) from Tstart (s), for Relative_tmax = tmax / T in script 5
+    out$tmax_from_Tstart <- kin[[timeNow]] - kin$Tstart
 
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
@@ -224,14 +227,11 @@ rm(list=ls())
     names(out)[names(out) == "Ttotal"] <- "T"
     names(out)[names(out) == "Ttpg"]   <- "ttpg"
 
-    # Prey_num as an ordered factor
-    preyNow <- as.character(out$Prey_num)
-    levelsNow <- preyLevels
-    if(is.null(levelsNow)) {
-      levelsNow <- unique(na.omit(preyNow))
-      numericLevels <- suppressWarnings(as.numeric(levelsNow))
-      levelsNow <- if(all(!is.na(numericLevels))) levelsNow[order(numericLevels)] else sort(levelsNow)
-    }
+    # Prey_num as an ordered factor (levels in preyLevels order, not alphabetical)
+      # Blank cells are NA
+    preyNow <- tolower(trimws(as.character(out$Prey_num)))
+    preyNow[preyNow == ""] <- NA
+    levelsNow <- tolower(trimws(preyLevels))
     if(any(!(na.omit(preyNow) %in% levelsNow))) {
       stop("Prey_num values not in preyLevels: ", paste(setdiff(unique(na.omit(preyNow)), levelsNow), collapse = ", "))
     }

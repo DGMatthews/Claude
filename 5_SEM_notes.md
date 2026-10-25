@@ -1,48 +1,37 @@
-# Notes for script 5 (SEM)
+# Notes for script 5 (`5_SEM_path_analysis.R`)
 
-Every step that involves an SEM goes in script 5. Script 4 (`4_SEM_dataset.R`) only builds the dataset.
+Every step that involves an SEM is in script 5. Script 4 (`4_SEM_dataset.R`) only builds the dataset.
 
 ## Input
 
-- Read `SEM_dataset.rds` (per strike) or `SEM_dataset_byFish.rds` (per fish), not the CSVs.
-  - Each file is a list with `$tmax` and `$tmaxVel` (values at tmaxVel are saved under the `_tmax` names; the `timeBasis` column says which).
-  - The `.rds` keeps `Prey_num` as an **ordered factor**. A CSV loses that.
-- Prey number is ordered categorical. In `lm`/`lmer` an ordered factor gets polynomial contrasts (`.L`, `.Q`, ...).
-  - If you want treatment contrasts instead, set them explicitly. Don't convert it to numeric.
-- Satiation = strike number (`_E##`), used as a proxy: higher strike numbers mean more food eaten since fasting began.
+- Read `SEM_dataset.rds` (per strike) or `SEM_dataset_byFish.rds` (per fish), not the CSVs. The `.rds` keeps `Prey_num` as an ordered factor (one < few < several < many).
+- Satiation = strike number (`_E##`), a proxy: higher strike numbers mean more food eaten since fasting began.
 - No size correction anywhere in the SEM. Size corrections are only for the genetic screening of each parameter.
 
-## Effort (latent variable): two-step hybrid
+## Effort: two-step hybrid (in the script)
 
-piecewiseSEM has no latent variables, so Effort is made first in lavaan and then used as an observed variable.
+1. lavaan, measurement model only: `Effort =~ Neurocranium_Adj_vel_mean + Hyoid_Adj_vel_mean + T`, FIML (`missing = "ml"`), indicators standardized.
+   - Just-identified with 3 indicators (df = 0): no fit test, so check the loadings.
+2. **Bartlett factor scores** (`lavPredict(..., method = "Bartlett")`) = `Effort_score`. They are unbiased for the factor, so slopes on Effort aren't attenuated (regression scores would be).
+3. `Effort_score ~ Prey_num + Satiation + Fasting_time` and Effort's arrows into `Hyoid_vel_tmax` and `Neurocranium_linear_vel_tmax` are ordinary path equations.
+4. The bootstrap redoes step 1 in every resample, so the error in the scores is in the confidence intervals.
 
-1. **Measurement model in lavaan.** Only the measurement part goes in lavaan:
-   ```r
-   mEffort <- 'Effort =~ Neurocranium_Adj_vel_mean + Hyoid_Adj_vel_mean + T'
-   fitEffort <- cfa(mEffort, data = d, missing = "ml", std.lv = TRUE)   # FIML: rows missing one indicator are kept
-   ```
-   - With 3 indicators the model is just-identified (df = 0): the loadings are estimated, but there is no fit test.
-   - Check that the loadings have the expected signs and that none is near 0.
-   - Standardize the indicators first if their scales differ a lot (T is in s, the velocities in mm/s).
-2. **Factor scores: use Bartlett scores.**
-   ```r
-   d$Effort_score <- NA
-   d$Effort_score[lavInspect(fitEffort, "case.idx")] <- lavPredict(fitEffort, method = "Bartlett")[, "Effort"]
-   ```
-   - Bartlett scores are unbiased for the factor, so their slopes are not biased when Effort is used as a predictor later. Regression scores bias those slopes.
-   - Use `case.idx` so the scores line up with the right rows.
-   - Set the sign so Effort increases with `Neurocranium_Adj_vel_mean`.
-3. **piecewiseSEM with the scores** as an observed variable:
-   - `Effort_score ~ Prey_num + Satiation + Fasting_time` (the covariates go here, not in the lavaan step)
-   - `Effort_score` as a predictor in the `Hyoid_vel_tmax` and `Neurocranium_linear_vel_tmax` equations
-   - Per strike: use `lmer(... + (1 | Fish_ID))` in every equation.
-4. **Standard errors.** The scores are estimates, and step 3 treats them as known, so its SEs are too small.
-   - Bootstrap the whole two-step procedure: refit steps 1–3 on each resample.
-   - Per strike, resample fish (`Fish_ID`), not strikes.
+## Decisions in the draft to check
 
-## Datasets
+- **Mandible check equation.** The docs have `Mandible_ang_predicted(tmax)` on the left. In the data, that column *is* the four-bar prediction (the change in θ4 from rest). So the script uses the measured `Mandible_ang_tmax` as the response, with the prediction as a predictor.
+- **`Neurocranium_linear_vel_tmax ~ Epaxial_CSA * Effort * I(1/Neurocranium_MA)`.** The docs write `/Neurocranium_MA`. In an R formula `/` means nesting, so every ratio is written with `I()`.
+- **`#` equations use R's `*`.** This gives all main effects and interactions, so the three-way products have 7 terms each. At fish level that's a lot of parameters for the sample size.
+- **`*` (physics) equations use one product term (`I(...)`).** In the pressure equation each term is converted to Pa, so the coefficients should be about 1 if the physics holds.
+- **Units of `Total_ingested_volume`.** The coefficients are 1 only if it is in mm³.
+- **Linearization reference point.** Every variable is set to 90% of its largest-magnitude value. Identities are then recalculated from their parents' values, so the reference point is consistent (setting `refType`, with `"median"` as the alternative).
+- **`Prey_num` in the path effects.** Its effect is the mean change per step up the order: (many − one) / 3.
+- **T is an Effort indicator and also a predictor (exogenous in the path model).** The d-separation test will flag claims between Effort and the timing variables if Effort really drives T. If it does, a path from Effort to T, or to the timing variables, may be needed.
+- **d-separation.**
+  - Claims between two exogenous variables aren't tested; the morphology variables are correlated through size anyway.
+  - Claims that identities make trivially true are skipped and listed.
+  - With this many variables there are about 1000 claims, so Fisher's C is sensitive. The list of claims with the smallest p shows which arrows are missing.
+- **Identities are checked against the data**, including the four-bar values, which use script 2's own functions. A row with a large `median_rel_diff` means script 2 or script 3 calculates the variable differently from the docs.
 
-- Fit the model at both time bases (`$tmax` and `$tmaxVel`) and compare.
-- Script 4 prints, for each equation, how many rows have every variable. The `Effort_indicators` row is the minimum; FIML can use rows missing some indicators.
-- Width model and flow version are set in script 4 (`widthModel`, `flowVersion`).
-  - Choosing the width model needs the aperture-corrected measured flow (the corrected mouth-front version in script 3), still to come.
+## Run time
+
+The bootstrap refits everything (lavaan plus 21 mixed models) for every resample. Use `nBoot = 200` to check the script, and 1000+ for the final run, which will be slow (tens of minutes per time basis).
