@@ -32,6 +32,8 @@ rm(list=ls())
 
   outPrefix <- file.path(pathData, 'SEM_dataset')   # saves <outPrefix>_tmax.csv, <outPrefix>_tmaxVel.csv and <outPrefix>.rds
     # Use the .rds in script 5: it keeps Prey_num as an ordered factor, which a .csv can't store
+    # The .rds has one dataset per time basis x width model x flow version (names like "tmax|main|mouthFrontCorr"),
+      # so script 5 can compare them. The CSVs are only the widthModel / flowVersion chosen below
 
   # One row per strike (keep Fish_ID for a random effect in each equation) or per fish
     # Per fish: every value comes from the fish's strike with the most negative Max_sub_pressure (its strongest suction)
@@ -48,11 +50,14 @@ rm(list=ls())
   # Which epaxial cross-section is Epaxial_CSA
   epaxialSection <- "crest"    ### CHANGE  "crest" (highest point of the supraoccipital crest) or "flat" (where the neurocranium flattens out)
 
-  # Buccal width model for V_buccal and U_flow_ff_predicted (chosen by comparing with the measured flow in script 3)
-  widthModel <- "main"         ### CHANGE  "main" (bar model), "noRetract" or "noWidth"
+  # Buccal width models (V_buccal and U_flow_ff_predicted) and measured-flow versions (script 3) to save in the .rds
+    # "" as a flow version = script 3's mainVersion (the unsuffixed columns)
+  widthModels  <- c("main", "noRetract", "noWidth")           ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
+  flowVersions <- c("mouthFrontCorr", "mouthFront", "static")  ### CHANGE  any of "mouthFrontCorr", "mouthFront", "static", "staticRaw", ""
 
-  # Measured-flow version from script 3. "" = script 3's mainVersion (the unsuffixed columns)
-  flowVersion <- ""            ### CHANGE  "", "mouthFront", "static" or "staticRaw"
+  # The combination saved to the CSVs and printed in the checks (also the default in script 5)
+  widthModel  <- "main"            ### CHANGE
+  flowVersion <- "mouthFrontCorr"  ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
@@ -106,8 +111,7 @@ rm(list=ls())
 
 ##### Flow (one row per kinematic video, matched on vidName)
   flowRow <- match(kin$vidName, flow$vidName)
-  flowSuffix <- if(flowVersion == "") "" else paste0("_", flowVersion)
-  flowName <- function(colNow) paste0(colNow, flowSuffix)
+  flowName <- function(colNow, flowNow) paste0(colNow, if(flowNow == "") "" else paste0("_", flowNow))
 
 
 ##### Effort inputs from the data sheet
@@ -148,7 +152,7 @@ rm(list=ls())
 #######################################
 
   # Width-model suffix for the buccal-volume columns
-  widthSuffix <- c(main = "", noRetract = "_noRetract", noWidth = "_noWidth")[[widthModel]]
+  widthSuffixOf <- function(widthNow) c(main = "", noRetract = "_noRetract", noWidth = "_noWidth")[[widthNow]]
 
   # Variables that are calculated at a time: name in the SEM (with _tmax) = column stem in the outputs (time suffix added below)
   timeVarsKin <- c("R", "R_vel", "A", "A_vel", "Protrusion", "Protrusion_vel",
@@ -188,27 +192,33 @@ rm(list=ls())
   flagVars <- c("Tend_censored", "Mouth_open_corrected", "Hyoid_depth_source")
 
   # Stop if any expected column is missing from the inputs (a name changed in an earlier script)
+  if(!(widthModel %in% widthModels) || !(flowVersion %in% flowVersions)) {
+    stop("widthModel and flowVersion must be in widthModels and flowVersions")
+  }
   missingKin  <- setdiff(c(as.vector(outer(timeVarsKin, c("_tmax", "_tmaxVel"), paste0)),
-                           as.vector(outer(timeVarsBuccal, c("_tmax", "_tmaxVel"), function(a, b) paste0(a, b, widthSuffix))),
+                           unlist(lapply(widthModels, function(w) c(as.vector(outer(timeVarsBuccal, c("_tmax", "_tmaxVel"), function(a, b) paste0(a, b, widthSuffixOf(w)))),
+                                                                     paste0(strikeVarsBuccal, widthSuffixOf(w))))),
                            "Hyoid_tmax_filled", "Hyoid_tmaxVel_filled", "tmax", "tmaxVel", "Tstart",
-                           setdiff(strikeVars, names(effortCols)), paste0(strikeVarsBuccal, widthSuffix), fishVars, flagVars),
+                           setdiff(strikeVars, names(effortCols)), fishVars, flagVars),
                          names(kin))
-  missingFlow <- setdiff(c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0))), flowName(strikeVarsFlow), "Max_sub_pressure"),
+  missingFlow <- setdiff(c(unlist(lapply(flowVersions, function(f) c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0)), f),
+                                                                     flowName(strikeVarsFlow, f)))), "Max_sub_pressure"),
                          names(flow))
   if(length(missingKin) > 0 || length(missingFlow) > 0) {
     stop("Columns not found. Kinematics: ", paste(missingKin, collapse = ", "), ". Flow: ", paste(missingFlow, collapse = ", "))
   }
 
 
-  buildDataset <- function(timeNow) {
+  buildDataset <- function(timeNow, widthNow, flowNow) {
 
+    widthSuffix <- widthSuffixOf(widthNow)
     out <- data.frame(vidName = kin$vidName, Fish_ID = kin$Unique.ID, Family = kin$family, Animal.ID = kin$Animal.ID,
-                      timeBasis = timeNow, stringsAsFactors = FALSE)
+                      timeBasis = timeNow, widthModel = widthNow, flowVersion = flowNow, stringsAsFactors = FALSE)
 
     # Instantaneous values, saved under the _tmax name whichever time this is
     for(v in timeVarsKin)    out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow)]]
     for(v in timeVarsBuccal) out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow, widthSuffix)]]
-    for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow))]][flowRow]
+    for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow), flowNow)]][flowRow]
     out$Hyoid_tmax_filled <- kin[[paste0("Hyoid_", timeNow, "_filled")]]
     # Time of tmax (or tmaxVel) from Tstart (s), for Relative_tmax = tmax / T in script 5
     out$tmax_from_Tstart <- kin[[timeNow]] - kin$Tstart
@@ -216,7 +226,7 @@ rm(list=ls())
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
     for(v in strikeVarsBuccal) out[[v]] <- kin[[paste0(v, widthSuffix)]]
-    for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v)]][flowRow]
+    for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowNow)]][flowRow]
     for(v in fishVars)         out[[v]] <- kin[[v]]
     for(v in flagVars)         out[[v]] <- kin[[v]]
 
@@ -263,7 +273,17 @@ rm(list=ls())
 
 
   # Effort (latent variable) is not made here: it's fitted in script 5 (see 5_SEM_notes.md)
-  datasets <- lapply(c(tmax = "tmax", tmaxVel = "tmaxVel"), buildDataset)
+  # Every time basis x width model x flow version, named "timeBasis|widthModel|flowVersion"
+  combos <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = widthModels, flowVersion = flowVersions, stringsAsFactors = FALSE)
+  allDatasets <- list()
+  for(k in seq_len(nrow(combos))) {
+    allDatasets[[paste(combos$timeBasis[k], combos$widthModel[k], combos$flowVersion[k], sep = "|")]] <-
+      buildDataset(combos$timeBasis[k], combos$widthModel[k], combos$flowVersion[k])
+  }
+
+  # The chosen combination, for the checks and the CSVs
+  datasets <- list(tmax    = allDatasets[[paste("tmax", widthModel, flowVersion, sep = "|")]],
+                   tmaxVel = allDatasets[[paste("tmaxVel", widthModel, flowVersion, sep = "|")]])
 
 
 ############
@@ -322,8 +342,8 @@ rm(list=ls())
     write.csv(datasets[[tNow]], fileNow, row.names = FALSE)
     print(paste0("Saved: ", fileNow))
   }
-  # Both datasets with their column types (Prey_num ordered), for script 5
-  saveRDS(datasets, paste0(outPrefix, fishTag, ".rds"))
-  print(paste0("Saved: ", outPrefix, fishTag, ".rds"))
+  # All combinations with their column types (Prey_num ordered), for script 5
+  saveRDS(allDatasets, paste0(outPrefix, fishTag, ".rds"))
+  print(paste0("Saved: ", outPrefix, fishTag, ".rds (", length(allDatasets), " datasets: ", paste(names(allDatasets), collapse = ", "), ")"))
   print(paste0("Settings: unit = ", unitOfAnalysis, ", epaxial = ", epaxialSection, ", width model = ", widthModel,
-               ", flow version = ", if(flowVersion == "") "script 3 mainVersion" else flowVersion, ", drop censored = ", dropCensored))
+               ", flow version = ", if(flowVersion == "") "script 3 mainVersion" else flowVersion, " (CSVs)", ", drop censored = ", dropCensored))

@@ -32,6 +32,31 @@ Every step that involves an SEM is in script 5. Script 4 (`4_SEM_dataset.R`) onl
   - With this many variables there are about 1000 claims, so Fisher's C is sensitive. The list of claims with the smallest p shows which arrows are missing.
 - **Identities are checked against the data**, including the four-bar values, which use script 2's own functions. A row with a large `median_rel_diff` means script 2 or script 3 calculates the variable differently from the docs.
 
+## Comparing models (end of script 5, `model_comparison.csv`)
+
+Each row of `variants` is one model: time basis × width model × flow version × KT version × equation set (`structures`). Script 4 saves every time basis × width model × flow version combination in the `.rds`.
+
+There are three kinds of fit, each comparable across a different set of models:
+
+1. **Fisher's C** (absolute fit): p > 0.05 means the model isn't rejected. This works for any model, but C grows with the number of claims.
+2. **AIC / BIC** (likelihood-based, Shipley & Douma 2020): the summed log-likelihoods of the path equations, each refitted by ML on the rows every model in the group shares.
+   - Only valid between models whose responses are the same data (`aic_group`): KT version, width model, and structures that only change predictors.
+   - The time basis and the flow version change the measured responses, so those models fall in different groups.
+   - `model_comparison_equations.csv` shows which equations drive a difference.
+3. **Cross-validated whole-model R²** of each outcome (predictive fit), on the rows every comparable model predicts (`cv_group_<outcome>`).
+   - This is the comparison across groups. `Max_sub_pressure` is the same data in every model; `Total_ingested_volume` changes with the flow version.
+
+Suggested order:
+- Drop models with Fisher's C p < 0.05, if any pass.
+- Within an `aic_group`, take the lowest AIC (ΔAIC < 2 = about equal).
+- Across groups, take the highest cross-validated R² for both outcomes.
+
+## Variance explained in each outcome
+
+- **Local R²:** the outcome's own equation, using its measured direct predictors (e.g. pressure from the measured flow and gape).
+- **Whole-model R²:** the outcome predicted from the exogenous variables only, through every equation in the chain, using fixed effects only. This is the share of variance the model as a whole explains.
+- **Cross-validated whole-model R²:** the same, with each fold's fish predicted from models fitted without them. This is the honest number to report.
+
 ## Run time
 
 The bootstrap refits everything (lavaan plus 21 mixed models) for every resample. Use `nBoot = 200` to check the script, and 1000+ for the final run, which will be slow (tens of minutes per time basis).
