@@ -59,7 +59,7 @@ rm(list=ls())
       # The kinematics script then leaves that fish's four-bar outputs as NA instead of starting from a wrong rest position
     # Hyoid not at rest (depressed or abducted): the hyoid zero points and W_head are set to NA, so its hyoid depression and buccal volume are NA
     # Bone lengths are kept, since they don't depend on posture
-  mouthOpenScans <- c("F2_1.3_8-11.08")   ### CHANGE  add any other scans with the mouth open
+  mouthOpenScans <- c("F2_1.3_8-11.08", "F2_1.3_8-11.09")   ### CHANGE  add any other scans with the mouth open
   hyoidNotAtRestScans <- c()              ### CHANGE  add scans where the hyoid is visibly depressed or the ceratohyals spread
 
   mouthOpenCols <- c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest",
