@@ -9,10 +9,15 @@
 
   # Three versions of the measured flow speed (U_flow_ef_meas), each with its own set of outputs (column suffix):
     # _mouthFront: velocity sampled immediately in front of the mouth in every frame (mouth_front_velocity_trace files). Follows the mouth, but noisier
+                     # It is the maximum within the jaw triangle plus a box 1.5 mm in front, so the point can be up to ~1.5 mm from the aperture
+    # _mouthFrontCorr: _mouthFront corrected to the aperture with Muller's flow model (below), frame by frame,
+                     # using where the maximum was in each frame (position columns in the mouth-front files)
+                     # Points at or behind the aperture plane (z <= 0) aren't corrected (factor 1)
     # _static:     velocity at the fixed node where peak velocity happened (peak_node_traces files), corrected to the mouth aperture with
                      # Muller et al.'s flow model: U_mouth = U_node * (z^2 + R^2)^1.5 / R^3
                      # z = distance from the mouth centre to the node along the strike axis, R = gape radius, both from the PIV mouth landmarks
                      # Only frames where the node is close to the mouth are used (maxZoverR, maxOffAxisOverR), since the correction grows quickly with distance
+                     # (the same limits apply to _mouthFrontCorr)
     # _staticRaw:  the fixed-node velocity without the correction (reference)
   # The version chosen in mainVersion is also saved without a suffix, under the names the SEM uses (U_flow_ef_meas_tmax, U_flow_ff_mean, ...)
 
@@ -47,6 +52,10 @@ rm(list=ls())
   suffixMouthFront <- '_mouth_front_velocity_trace.csv'
   suffixMouthMarks <- '.mouthlandmarks.csv'
 
+  # Columns in the mouth-front files with the position (px, PIV image) of the maximum in each frame, for _mouthFrontCorr
+  frontXcol <- 'x_px'   ### CHECK  column names in the new mouth-front files
+  frontYcol <- 'y_px'   ### CHECK
+
   # Kinematics output (from 2_ACxTRC_Kinematic_Measurements_Sept2026.R)
   pathData      <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'
   kinFinalData  <- file.path(pathData, 'kinematicsAll_sleapOutput.csv')
@@ -60,7 +69,7 @@ rm(list=ls())
   outFlowSkip   <- file.path(pathData, 'flowSkipped.csv')
 
   # Which velocity version is saved under the SEM names (no suffix)
-  mainVersion <- "mouthFront"   ### CHANGE  "mouthFront", "static" or "staticRaw"
+  mainVersion <- "mouthFrontCorr"   ### CHANGE  "mouthFrontCorr", "mouthFront", "static" or "staticRaw"
 
   # Muller correction of the static node: only frames where the node is within these distances of the mouth (multiples of the gape radius R)
   maxZoverR       <- 1.5   ### CHANGE  along the strike axis. The correction factor is 2.8 at z = R, 5.9 at 1.5R, 11 at 2R
@@ -203,7 +212,7 @@ rm(list=ls())
   nVids <- nrow(kin)
   skippedFlow <- data.frame(vidName = character(0), section = character(0), reason = character(0))
 
-  versions <- c("mouthFront", "static", "staticRaw")
+  versions <- c("mouthFrontCorr", "mouthFront", "static", "staticRaw")
 
   # Output columns (one set per velocity version)
   flowCols <- c("U_flow_ef_meas_tmax", "U_flow_ef_meas_tmaxVel", "U_flow_ef_meas_acc_tmax", "U_flow_ef_meas_acc_tmaxVel",
@@ -219,14 +228,17 @@ rm(list=ls())
                          static_node_zR_tmax = NA_real_, static_node_zR_tmaxVel = NA_real_,
                          static_node_offR_tmax = NA_real_, static_node_offR_tmaxVel = NA_real_,
                          static_Muller_factor_tmax = NA_real_, static_Muller_factor_tmaxVel = NA_real_,
-                         static_corrected_frac = NA_real_)
+                         static_corrected_frac = NA_real_,
+                         front_zR_tmax = NA_real_, front_zR_tmaxVel = NA_real_,
+                         front_Muller_factor_tmax = NA_real_, front_Muller_factor_tmaxVel = NA_real_,
+                         front_corrected_frac = NA_real_)
   for(colNow in c(flowCols, as.vector(outer(flowCols, paste0("_", versions), paste0)))) {
     flowData[[colNow]] <- NA_real_
   }
 
   # Time series: one row per video, one column per kinematic frame
   longestVid <- max(kin$nFrames, na.rm = TRUE)
-  tsNames <- c("Pressure_t", "Muller_factor_t", paste0("U_flow_ef_meas_", versions, "_t"))
+  tsNames <- c("Pressure_t", "Muller_factor_t", "Muller_factor_front_t", paste0("U_flow_ef_meas_", versions, "_t"))
   flowTS <- lapply(setNames(tsNames, tsNames), function(x) matrix(NA_real_, nrow = nVids, ncol = longestVid, dimnames = list(kin$vidName, NULL)))
 
 
@@ -391,6 +403,34 @@ rm(list=ls())
       if(file.exists(fileFront)) {
         frontNow <- read.csv(fileFront)
         velRaw$mouthFront <- toKinFrames(frontNow$time_ms, frontNow$mouth_front_velocity_raw_m_per_s * 1000, nNow, frameRate)
+
+        # Corrected to the aperture, frame by frame, from where the maximum was in that frame (needs the mouth landmarks)
+        if(!all(c(frontXcol, frontYcol) %in% names(frontNow))) {
+          stop("Mouth-front file has no '", frontXcol, "' / '", frontYcol, "' columns (set frontXcol / frontYcol). Columns: ",
+               paste(names(frontNow), collapse = ", "), ". File: ", basename(fileFront))
+        }
+        if(marksOK) {
+          frontX <- toKinFrames(frontNow$time_ms, frontNow[[frontXcol]], nNow, frameRate)
+          frontY <- toKinFrames(frontNow$time_ms, frontNow[[frontYcol]], nNow, frameRate)
+          dFront <- nodeDist(frontX, frontY)
+          frontFactor <- (pmax(dFront$zR, 0)^2 + 1)^1.5   # 1 at or behind the aperture plane
+          useFront <- dFront$zR <= maxZoverR & dFront$offR <= maxOffAxisOverR
+          frontFactor[!(useFront %in% TRUE)] <- NA
+          velRaw$mouthFrontCorr <- velRaw$mouthFront * frontFactor
+          flowTS$Muller_factor_front_t[i, 1:nNow] <- frontFactor
+
+          if(!is.na(kin$startFrame[i]) && !is.na(kin$endFrame[i])) {
+            flowData$front_corrected_frac[i] <- mean(!is.na(frontFactor[kin$startFrame[i]:kin$endFrame[i]]))
+          }
+          # Where the maximum was at tmax and tmaxVel (multiples of R), and the factor there
+          for(tNm in c("tmax", "tmaxVel")) {
+            kNow <- round(kin[[tNm]][i] * frameRate) + 1
+            if(!is.na(kNow) && kNow >= 1 && kNow <= nNow) {
+              flowData[[paste0("front_zR_", tNm)]][i]            <- dFront$zR[kNow]
+              flowData[[paste0("front_Muller_factor_", tNm)]][i] <- frontFactor[kNow]
+            }
+          }
+        }
       } else {
         skippedFlow <- addSkip(skippedFlow, vidNow, "Files", paste0("No mouth front velocity file: ", basename(fileFront)))
       }
@@ -502,6 +542,9 @@ rm(list=ls())
   print(summary(flowData$pressure_node_zR))
   print(summary(flowData$velocity_node_zR))
   print(summary(flowData$static_corrected_frac))   # share of strike frames where the static correction could be applied
+  print(summary(flowData$front_corrected_frac))    # same for the mouth-front correction (frames beyond maxZoverR / maxOffAxisOverR are NA)
+  print(summary(flowData$front_zR_tmaxVel))        # where the mouth-front maximum was at tmaxVel (multiples of R; <= 0 = at or inside the aperture)
+  print(summary(flowData$front_Muller_factor_tmaxVel))
 
   # The three velocity versions: size and agreement (mm/s)
   for(colNow in c("U_flow_ef_meas_tmaxVel", "U_flow_ef_meas_Max", "U_flow_ff_mean")) {

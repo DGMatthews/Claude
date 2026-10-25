@@ -5,7 +5,7 @@
   # FIRST DRAFT. Equations follow SEM_Equations_Dynamic_KT / SEM_Equations_Static_KT (ktVersion below)
   # Input: the .rds from 4_SEM_dataset.R (one row per strike, or per fish with the _byFish file)
   #
-  # Steps, run separately for each time basis (values at tmax and at tmaxVel):
+  # Steps, run separately for each model in variants (time basis, width model, flow version, KT version, equation set):
   #   1. Effort (latent variable): lavaan measurement model only, with FIML (missing = "ml"),
   #      then Bartlett factor scores (Effort_score), used as an observed variable from here on
   #   2. Path equations: one regression per equation (lmer with a random intercept for fish when there are several strikes per fish,
@@ -17,6 +17,10 @@
   #      then direct effects multiplied along every path to get indirect and total effects on the two outcomes
   #   6. Bootstrap over fish: steps 1, 2 and 5 repeated on resampled fish for confidence intervals
   #      This includes the factor scores, so their estimation error is in the intervals
+  #   7. Variance explained in each outcome by the whole model (whole-model R^2): the outcome predicted from the exogenous
+  #      variables only, through every equation in the chain (the measured intermediate variables aren't used)
+  #      In-sample, and cross-validated by fish (each fold's fish are predicted from models fitted without them)
+  #   8. Comparison of all the models (model_comparison.csv), see "Comparing the models" at the end
   #
   # Why piecewiseSEM::psem isn't used for the fit:
   #   - Its basis set treats every term of a formula as a variable, so the nonlinear physics terms (I(...)) and the
@@ -43,16 +47,33 @@ library(lmerTest)
   pathData <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'   ### CHANGE
 
   datasetFile <- file.path(pathData, 'SEM_dataset.rds')   ### CHANGE  'SEM_dataset.rds' (per strike) or 'SEM_dataset_byFish.rds' (per fish)
+    # It holds one dataset per time basis x width model x flow version (see script 4)
   outFolder   <- file.path(pathData, 'SEM_results')       ### CHANGE  folder for the results (made if needed)
 
   # Script 2, for the four-bar functions and sign settings (so the four-bar identities match script 2 exactly)
   script2 <- '2_ACxTRC_Kinematic_Measurements_Sept2026.R'   ### CHANGE  path to script 2
 
-  # Time bases to run (the dataset has both)
-  timeBases <- c("tmax", "tmaxVel")
+  # The models to fit and compare. One row per model:
+    # timeBasis:   "tmax" or "tmaxVel"
+    # widthModel:  buccal width model ("main", "noRetract", "noWidth"), must be in script 4's widthModels
+    # flowVersion: measured-flow version ("mouthFrontCorr", "mouthFront", "static", ...), must be in script 4's flowVersions
+    # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
+    # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
+  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "mouthFrontCorr",
+                          ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
+    # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
+  variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
-  # Kinematic transmission: "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
-  ktVersion <- "dynamic"   ### CHANGE
+  # Alternative equation sets (different path structures), used by name in variants$structure
+    # Each is a named character vector: name = response, value = new right-hand side (NA removes that equation)
+    # e.g. structures$effortT <- c(T = "Effort_score") would make T a response of Effort (see the notes on T)
+  structures <- list(base = character(0))   ### CHANGE
+
+  # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
+  bootVariants <- NULL   ### CHANGE
+
+  # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
+  cvFolds <- 10   ### CHANGE
 
   # Random effect for the per-strike models (ignored with one row per fish)
   randomTerm <- "(1 | Fish_ID)"   ### CHECK  e.g. "(1 | Family/Fish_ID)" to add family
@@ -208,11 +229,23 @@ library(lmerTest)
   eval(parse(text = signLines))
 
 
-##### KT version
-  ktCols <- list(dynamic = c(OralKT = "Oral_KT_tmax", OpercularKT = "Opercular_KT_tmax"),
-                 static  = c(OralKT = "Oral_4bar_KT", OpercularKT = "Opercular_4bar_KT"))[[ktVersion]]
-  for(nm in names(ktCols)) {
-    pathEqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], pathEqs, fixed = TRUE)
+##### Equations for one model: KT columns filled in and the structure's changes applied
+  pathEqsBase <- pathEqs
+  variantEquations <- function(ktNow, structureNow) {
+    ktCols <- list(dynamic = c(OralKT = "Oral_KT_tmax", OpercularKT = "Opercular_KT_tmax"),
+                   static  = c(OralKT = "Oral_4bar_KT", OpercularKT = "Opercular_4bar_KT"))[[ktNow]]
+    if(is.null(ktCols)) stop("ktVersion must be 'dynamic' or 'static': ", ktNow)
+    if(!(structureNow %in% names(structures))) stop("No structure called '", structureNow, "' in structures")
+    eqs <- pathEqsBase
+    changes <- structures[[structureNow]]
+    for(nm in names(changes)) {
+      eqs[nm] <- changes[[nm]]
+    }
+    eqs <- eqs[!is.na(eqs)]
+    for(nm in names(ktCols)) {
+      eqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], eqs, fixed = TRUE)
+    }
+    eqs
   }
 
 
@@ -227,12 +260,13 @@ library(lmerTest)
 
   # Fit one equation: lmer with randomTerm if there are several rows per fish, otherwise lm
     # Uses the rows that have every variable in the equation (and Fish_ID)
-  fitEq <- function(response, rhs, d, extraTerms = NULL) {
+    # REML = FALSE (maximum likelihood) for the likelihoods used in the model comparison
+  fitEq <- function(response, rhs, d, extraTerms = NULL, REML = TRUE) {
     rhsNow  <- paste(c(rhs, extraTerms), collapse = " + ")
     varsNow <- c(response, varsOf(rhsNow), "Fish_ID")
     dNow <- d[complete.cases(d[, varsNow, drop = FALSE]), , drop = FALSE]
     if(multiPerFish) {
-      lmer(as.formula(paste(response, "~", rhsNow, "+", randomTerm)), data = dNow)
+      lmer(as.formula(paste(response, "~", rhsNow, "+", randomTerm)), data = dNow, REML = REML)
     } else {
       lm(as.formula(paste(response, "~", rhsNow)), data = dNow)
     }
@@ -328,17 +362,53 @@ library(lmerTest)
   }
 
 
-  ##### Steps 2 and 5 (and 4 if doDsep): fit everything on one dataset and calculate the path effects
-  runModel <- function(d, doDsep = FALSE) {
-
+  ##### Steps 1 and 2: Effort scores and every path equation, on one dataset
+    # Returns the data with Effort_score added, the Effort model and the fitted equations
+  fitAll <- function(d) {
     effortNow <- fitEffort(d)
     d$Effort_score <- effortNow$score
-
-    # Step 2: path and check equations
     fits <- list()
     for(y in names(pathEqs)) {
       fits[[y]] <- tryCatch(fitEq(y, pathEqs[[y]], d), error = function(e) stop("Equation ", y, " failed: ", conditionMessage(e)))
     }
+    list(d = d, effort = effortNow, fits = fits)
+  }
+
+
+  ##### Step 7: predict every variable from the exogenous variables only, through the chain of equations
+    # Path equations: fixed effects only (the "average fish"), from the predicted values of their parents
+    # Identities: recalculated from the predicted values of their parents
+    # Returns newdata with every endogenous column replaced by its prediction (NA where an exogenous ancestor is missing)
+  wholePredict <- function(fits, newdata) {
+    predNow <- newdata
+    for(v in nodeOrder) {
+      if(v %in% exogenous) next
+      if(v %in% names(pathEqs)) {
+        okNow <- complete.cases(predNow[, nodeParents[[v]], drop = FALSE])
+        predNow[[v]] <- NA_real_
+        if(any(okNow)) predNow[[v]][okNow] <- predFixed(fits[[v]], predNow[okNow, , drop = FALSE])
+      } else {
+        predNow[[v]] <- eval(parse(text = activeIdentities[[v]])[[1]], predNow, globalenv())
+      }
+    }
+    predNow
+  }
+
+  # R^2 = 1 - sum of squared errors / total sum of squares, on the rows with both values
+  r2Of <- function(obs, pred) {
+    ok <- is.finite(obs) & is.finite(pred)
+    if(sum(ok) < 3) return(c(R2 = NA_real_, n = sum(ok)))
+    c(R2 = 1 - sum((obs[ok] - pred[ok])^2) / sum((obs[ok] - mean(obs[ok]))^2), n = sum(ok))
+  }
+
+
+  ##### Steps 2 and 5 (and 4 if doDsep): fit everything on one dataset and calculate the path effects
+  runModel <- function(d, doDsep = FALSE) {
+
+    fitted <- fitAll(d)
+    d <- fitted$d
+    effortNow <- fitted$effort
+    fits <- fitted$fits
     checkFits <- lapply(setNames(names(checkEqs), names(checkEqs)), function(y) fitEq(y, checkEqs[[y]], d))
 
     # Reference row: every column at its reference value, then identities recalculated from their parents in path order
@@ -377,7 +447,7 @@ library(lmerTest)
     totalStd  <- totalE * outer(1 / sds, sds)
     directStd <- B * outer(1 / sds, sds)
 
-    out <- list(effort = effortNow, fits = fits, checkFits = checkFits, refRow = refRow,
+    out <- list(d = d, effort = effortNow, fits = fits, checkFits = checkFits, refRow = refRow,
                 B = B, totalE = totalE, directStd = directStd, totalStd = totalStd,
                 coefs = do.call(rbind, lapply(names(fits), function(y) coefTable(fits[[y]], y))))
     if(doDsep) {
@@ -471,64 +541,84 @@ library(lmerTest)
 #  Read the data     #
 ######################
 
-  datasets <- readRDS(datasetFile)
+  allDatasets <- readRDS(datasetFile)
   dir.create(outFolder, showWarnings = FALSE)
 
-  # Several rows per fish (per-strike data): mixed models. One row per fish: lm
-  multiPerFish <- anyDuplicated(datasets[[1]]$Fish_ID) > 0
-  print(paste0("Unit of analysis: ", if(multiPerFish) paste0("strike (lmer with ", randomTerm, ")") else "fish (lm)"))
-  print(paste0("KT: ", ktVersion, " (", paste(ktCols, collapse = ", "), ")"))
+  variants$dataKey <- with(variants, paste(timeBasis, widthModel, flowVersion, sep = "|"))
+  if(any(!(variants$dataKey %in% names(allDatasets)))) {
+    stop("Datasets not in ", basename(datasetFile), ": ", paste(setdiff(variants$dataKey, names(allDatasets)), collapse = ", "),
+         ". Available: ", paste(names(allDatasets), collapse = ", "), " (add the width model / flow version to script 4's lists)")
+  }
+  if(anyDuplicated(variants$label)) {
+    stop("Two models have the same label: ", paste(variants$label[duplicated(variants$label)], collapse = ", "))
+  }
 
-  if(!is.ordered(datasets[[1]]$Prey_num)) {
+  # Several rows per fish (per-strike data): mixed models. One row per fish: lm
+  multiPerFish <- anyDuplicated(allDatasets[[1]]$Fish_ID) > 0
+  print(paste0("Unit of analysis: ", if(multiPerFish) paste0("strike (lmer with ", randomTerm, ")") else "fish (lm)"))
+
+  if(!is.ordered(allDatasets[[1]]$Prey_num)) {
     stop("Prey_num isn't an ordered factor: read the .rds from script 4, not a .csv")
   }
 
+  # Cross-validation folds: each fish is in the same fold for every model, so the models are predicted on the same splits
+  allFish <- sort(unique(unlist(lapply(allDatasets, function(x) x$Fish_ID))))
+  foldOf  <- setNames(sample(rep(seq_len(cvFolds), length.out = length(allFish))), allFish)
+
 
 #######################################
-#  Path structure (same for all runs) #
+#  Path structure (one per model)     #
 #######################################
 
   # Parents of every variable in the path model
     # Identities are kept if their response is used by a path equation or by another kept identity
-  dataNames <- c(names(datasets[[1]]), "Effort_score")
-  usedVars <- unique(c(names(pathEqs), unlist(lapply(pathEqs, varsOf))))
-  activeIdentities <- character(0)
-  repeat {
-    newIds <- setdiff(intersect(names(identityEqs), usedVars), names(activeIdentities))
-    if(length(newIds) == 0) break
-    activeIdentities <- c(activeIdentities, identityEqs[newIds])
-    usedVars <- unique(c(usedVars, unlist(lapply(identityEqs[newIds], varsOf))))
-  }
-  if(any(names(activeIdentities) %in% names(pathEqs))) {
-    stop("Variables with both a path equation and an identity: ", paste(intersect(names(activeIdentities), names(pathEqs)), collapse = ", "))
-  }
+  buildStructure <- function(pathEqs, dataNames) {
+    usedVars <- unique(c(names(pathEqs), unlist(lapply(pathEqs, varsOf))))
+    activeIdentities <- character(0)
+    repeat {
+      newIds <- setdiff(intersect(names(identityEqs), usedVars), names(activeIdentities))
+      if(length(newIds) == 0) break
+      activeIdentities <- c(activeIdentities, identityEqs[newIds])
+      usedVars <- unique(c(usedVars, unlist(lapply(identityEqs[newIds], varsOf))))
+    }
+    if(any(names(activeIdentities) %in% names(pathEqs))) {
+      stop("Variables with both a path equation and an identity: ", paste(intersect(names(activeIdentities), names(pathEqs)), collapse = ", "))
+    }
 
-  nodeParents <- setNames(vector("list", length(usedVars)), usedVars)
-  for(v in usedVars) {
-    nodeParents[[v]] <- if(v %in% names(pathEqs)) varsOf(pathEqs[[v]]) else if(v %in% names(activeIdentities)) varsOf(activeIdentities[[v]]) else character(0)
-  }
-  nodeOrder <- topoOrder(nodeParents)
+    nodeParents <- setNames(vector("list", length(usedVars)), usedVars)
+    for(v in usedVars) {
+      nodeParents[[v]] <- if(v %in% names(pathEqs)) varsOf(pathEqs[[v]]) else if(v %in% names(activeIdentities)) varsOf(activeIdentities[[v]]) else character(0)
+    }
+    nodeOrder <- topoOrder(nodeParents)
 
-  missingVars <- setdiff(c(usedVars, unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators), dataNames)
-  if(length(missingVars) > 0) {
-    stop("Columns not in the dataset (rerun script 4?): ", paste(missingVars, collapse = ", "))
-  }
+    missingVars <- setdiff(c(usedVars, unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators), dataNames)
+    if(length(missingVars) > 0) {
+      stop("Columns not in the dataset (rerun script 4?): ", paste(missingVars, collapse = ", "))
+    }
 
-  exogenous <- names(nodeParents)[sapply(nodeParents, length) == 0]
-  print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
+    list(pathEqs = pathEqs, activeIdentities = activeIdentities, nodeParents = nodeParents, nodeOrder = nodeOrder,
+         exogenous = names(nodeParents)[sapply(nodeParents, length) == 0])
+  }
 
 
 #######################################
-#  Run                                #
+#  Run each model                     #
 #######################################
 
-  results <- list()
+  results    <- list()
+  comparison <- data.frame()
 
-  for(tb in timeBases) {
+  for(vNow in seq_len(nrow(variants))) {
 
+    lab <- variants$label[vNow]
     print("")
-    print(paste0("################ Time basis: ", tb, " ################"))
-    d <- datasets[[tb]]
+    print(paste0("################ Model: ", lab, " ################"))
+    d <- allDatasets[[variants$dataKey[vNow]]]
+
+    # This model's equations and path structure (used by the functions above)
+    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score")),
+             envir = globalenv())
+    print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
 
 
     ##### Identity check: each identity recalculated from the data, compared with the column
@@ -558,7 +648,7 @@ library(lmerTest)
     eqSummary <- do.call(rbind, lapply(names(main$fits), function(y) {
       data.frame(equation = y, n = nobs(main$fits[[y]]), t(rSquared(main$fits[[y]])))
     }))
-    print("Path equations (rows used and R^2):")
+    print("Path equations (rows used and R^2 of each equation on its own measured predictors):")
     print(eqSummary, row.names = FALSE, digits = 3)
 
     print("Check equations (four-bar predicted vs. measured angles):")
@@ -575,14 +665,57 @@ library(lmerTest)
     print(head(claimsNow[!is.na(claimsNow$p), c("response", "other", "n", "p")], 10), row.names = FALSE, digits = 3)
 
 
+    ##### Step 7: variance in each outcome explained by the whole model
+      # Local R^2: the outcome's own equation, from its measured direct predictors (e.g. pressure from the measured flow and gape)
+      # Whole-model R^2: the outcome predicted from the exogenous variables only (morphology, timing, Effort covariates, ...),
+        # through every equation in the chain. This is how much of the outcome the model as a whole explains
+        # Fixed effects only, so differences between fish that the exogenous variables don't explain count as unexplained
+      # Cross-validated whole-model R^2: the same, but each fold's fish are predicted from models fitted without them
+        # Doesn't reward extra terms that only fit noise, so it is the fairest comparison between models
+    predIn <- wholePredict(main$fits, main$d)
+    cvPred <- data.frame(vidName = d$vidName)
+    foldsNow <- foldOf[d$Fish_ID]
+    nCvFail <- 0
+    for(o in outcomes) cvPred[[o]] <- NA_real_
+    for(k in seq_len(cvFolds)) {
+      testRows <- which(foldsNow == k)
+      if(length(testRows) == 0) next
+      fitK <- tryCatch(suppressWarnings(suppressMessages(fitAll(d[-testRows, , drop = FALSE]))), error = function(e) NULL)
+      if(is.null(fitK)) {
+        nCvFail <- nCvFail + 1
+        next
+      }
+      predK <- tryCatch(suppressWarnings(wholePredict(fitK$fits, d[testRows, , drop = FALSE])), error = function(e) NULL)
+      if(is.null(predK)) {
+        nCvFail <- nCvFail + 1
+        next
+      }
+      for(o in outcomes) cvPred[[o]][testRows] <- predK[[o]]
+    }
+    if(nCvFail > 0) {
+      print(paste0(nCvFail, " of ", cvFolds, " cross-validation folds failed to fit (their fish have no prediction)"))
+    }
+
+    r2Table <- do.call(rbind, lapply(outcomes, function(o) {
+      wholeNow <- r2Of(d[[o]], predIn[[o]])
+      cvNow    <- r2Of(d[[o]], cvPred[[o]])
+      data.frame(outcome = o, R2_local = eqSummary$R2_marginal[eqSummary$equation == o],
+                 R2_whole = wholeNow[["R2"]], n_whole = wholeNow[["n"]], R2_whole_cv = cvNow[["R2"]], n_cv = cvNow[["n"]])
+    }))
+    print("Variance explained in each outcome:")
+    print(r2Table, row.names = FALSE, digits = 3)
+
+
     ##### Step 6: bootstrap over fish
       # Fish are resampled with all their strikes. A fish drawn twice gets two IDs, so the random effect treats them as two fish
-    fishIDs <- unique(d$Fish_ID)
-    bootTotal <- array(NA_real_, dim = c(nBoot, length(outcomes), length(nodeOrder)), dimnames = list(NULL, outcomes, nodeOrder))
+    doBoot <- is.null(bootVariants) || lab %in% bootVariants
+    nBootNow <- if(doBoot) nBoot else 0
+    bootTotal <- array(NA_real_, dim = c(max(nBootNow, 1), length(outcomes), length(nodeOrder)), dimnames = list(NULL, outcomes, nodeOrder))
     bootTotalStd <- bootTotal
     bootCoefs <- list()
     nFail <- 0
-    for(k in seq_len(nBoot)) {
+    fishIDs <- unique(d$Fish_ID)
+    for(k in seq_len(nBootNow)) {
       pick <- sample(fishIDs, length(fishIDs), replace = TRUE)
       dBoot <- do.call(rbind, lapply(seq_along(pick), function(j) {
         rowsNow <- d[d$Fish_ID == pick[j], , drop = FALSE]
@@ -597,10 +730,10 @@ library(lmerTest)
       bootTotal[k, , ]    <- runNow$totalE[outcomes, ]
       bootTotalStd[k, , ] <- runNow$totalStd[outcomes, ]
       bootCoefs[[k]] <- setNames(runNow$coefs$estimate, paste(runNow$coefs$equation, runNow$coefs$term, sep = " : "))
-      if(k %% 50 == 0) print(paste0("Bootstrap ", k, " / ", nBoot))
+      if(k %% 50 == 0) print(paste0("Bootstrap ", k, " / ", nBootNow))
     }
     if(nFail > 0) {
-      print(paste0(nFail, " of ", nBoot, " bootstrap samples failed to fit and were left out"))
+      print(paste0(nFail, " of ", nBootNow, " bootstrap samples failed to fit and were left out"))
     }
     lowQ <- (1 - ciLevel) / 2
     upQ  <- 1 - lowQ
@@ -615,17 +748,16 @@ library(lmerTest)
     }
 
 
-    ##### Effects on the outcomes: direct, indirect, total (raw units and standardized), with bootstrap intervals
+    ##### Effects on the outcomes: direct, indirect, total (raw units and standardized), with bootstrap intervals (NA without the bootstrap)
     effects <- do.call(rbind, lapply(outcomes, function(o) {
       causes <- setdiff(nodeOrder[main$totalE[o, ] != 0], o)
       if(length(causes) == 0) return(NULL)
+      qNow <- function(arr, q) suppressWarnings(apply(arr[, o, causes, drop = FALSE], 3, quantile, q, na.rm = TRUE))
       data.frame(outcome = o, cause = causes, exogenous = causes %in% exogenous,
                  direct = main$B[o, causes], indirect = main$totalE[o, causes] - main$B[o, causes], total = main$totalE[o, causes],
-                 total_low = apply(bootTotal[, o, causes, drop = FALSE], 3, quantile, lowQ, na.rm = TRUE),
-                 total_high = apply(bootTotal[, o, causes, drop = FALSE], 3, quantile, upQ, na.rm = TRUE),
+                 total_low = qNow(bootTotal, lowQ), total_high = qNow(bootTotal, upQ),
                  total_std = main$totalStd[o, causes],
-                 total_std_low = apply(bootTotalStd[, o, causes, drop = FALSE], 3, quantile, lowQ, na.rm = TRUE),
-                 total_std_high = apply(bootTotalStd[, o, causes, drop = FALSE], 3, quantile, upQ, na.rm = TRUE),
+                 total_std_low = qNow(bootTotalStd, lowQ), total_std_high = qNow(bootTotalStd, upQ),
                  row.names = NULL)
     }))
     effects <- effects[order(effects$outcome, -abs(effects$total_std)), ]
@@ -636,19 +768,163 @@ library(lmerTest)
     }
 
 
-    ##### Save
-    write.csv(coefsNow,  file.path(outFolder, paste0("coefficients_", tb, ".csv")), row.names = FALSE)
-    write.csv(effects,   file.path(outFolder, paste0("effects_", tb, ".csv")), row.names = FALSE)
-    write.csv(claimsNow, file.path(outFolder, paste0("dsep_claims_", tb, ".csv")), row.names = FALSE)
-    write.csv(eqSummary, file.path(outFolder, paste0("equations_", tb, ".csv")), row.names = FALSE)
-    write.csv(idCheck,   file.path(outFolder, paste0("identity_check_", tb, ".csv")), row.names = FALSE)
+    ##### Save this model
+    write.csv(coefsNow,  file.path(outFolder, paste0("coefficients_", lab, ".csv")), row.names = FALSE)
+    write.csv(effects,   file.path(outFolder, paste0("effects_", lab, ".csv")), row.names = FALSE)
+    write.csv(claimsNow, file.path(outFolder, paste0("dsep_claims_", lab, ".csv")), row.names = FALSE)
+    write.csv(eqSummary, file.path(outFolder, paste0("equations_", lab, ".csv")), row.names = FALSE)
+    write.csv(idCheck,   file.path(outFolder, paste0("identity_check_", lab, ".csv")), row.names = FALSE)
 
-    results[[tb]] <- list(main = main, coefs = coefsNow, effects = effects, idCheck = idCheck,
-                          bootTotal = bootTotal, bootTotalStd = bootTotalStd, nBootFailed = nFail)
+    results[[lab]] <- list(variant = variants[vNow, ], main = main, coefs = coefsNow, effects = effects, idCheck = idCheck,
+                           r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs,
+                           bootTotal = bootTotal, bootTotalStd = bootTotalStd, nBootFailed = nFail)
+
+    rowNow <- data.frame(variants[vNow, c("label", "timeBasis", "widthModel", "flowVersion", "ktVersion", "structure")],
+                         n_rows = nrow(d), n_fish = length(unique(d$Fish_ID)), n_equations = length(pathEqs),
+                         n_parameters = sum(sapply(main$fits, function(m) attr(logLik(m), "df"))),
+                         fisherC = main$dsep$fisherC, fisherC_df = main$dsep$df, fisherC_p = main$dsep$p, row.names = NULL)
+    for(o in outcomes) {
+      rowNow[[paste0("R2_local_", o)]]    <- r2Table$R2_local[r2Table$outcome == o]
+      rowNow[[paste0("R2_whole_", o)]]    <- r2Table$R2_whole[r2Table$outcome == o]
+      rowNow[[paste0("R2_whole_cv_", o)]] <- r2Table$R2_whole_cv[r2Table$outcome == o]
+    }
+    comparison <- rbind(comparison, rowNow)
   }
 
-  results$settings <- list(datasetFile = datasetFile, ktVersion = ktVersion, randomTerm = randomTerm, refType = refType,
-                           refFrac = refFrac, nBoot = nBoot, standardizeIndicators = standardizeIndicators,
-                           pathEqs = pathEqs, checkEqs = checkEqs, identities = activeIdentities)
-  saveRDS(results, file.path(outFolder, paste0("SEM_results_", ktVersion, if(multiPerFish) "" else "_byFish", ".rds")))
+
+#######################################
+#  Comparing the models               #
+#######################################
+  # Three kinds of fit, each comparable across a different set of models:
+  #
+  # 1. Fisher's C (absolute fit): does the model leave out paths the data need? p > 0.05 = not rejected
+  #    Any model. But C grows with the number of claims, so a bigger model isn't automatically worse
+  #
+  # 2. AIC and BIC (relative fit, Shipley & Douma 2020): -2 x the summed log-likelihoods of all path equations + a penalty for
+  #    the number of parameters. Lower is better. A difference under 2 means about equally supported
+  #    Only comparable between models whose responses are the same data (same variables with the same values, same rows),
+  #    e.g. dynamic vs. static KT, width models, or structures that change only predictors. These models get the same aic_group
+  #    Each equation is refitted by maximum likelihood on the rows that every model in the group has for it
+  #    The time basis and the flow version change the measured responses themselves, so they are in different aic_groups
+  #
+  # 3. Cross-validated whole-model R^2 of each outcome (predictive fit): how well the model predicts performance for fish it
+  #    hasn't seen, from the exogenous variables. Higher is better. Comparable between any models with the same outcome data,
+  #    calculated on the rows every one of those models predicts (cv_group_<outcome>). Max_sub_pressure is the same in every model,
+  #    Total_ingested_volume changes with the flow version
+  #
+  # Suggested order: drop models with Fisher's C p < 0.05 if any pass; within an aic_group pick the lowest AIC;
+  # across groups pick the highest cross-validated R^2 for the outcomes (check both outcomes agree)
+
+  # Values of each response by video, to find models with identical response data
+  responseData <- function(lab) {
+    dNow <- results[[lab]]$main$d
+    dNow <- dNow[order(dNow$vidName), ]
+    lapply(setNames(sort(names(results[[lab]]$pathEqs)), sort(names(results[[lab]]$pathEqs))), function(y) signif(dNow[[y]], 10))
+  }
+  groupBy <- function(labs, keyFun) {
+    groupNow <- setNames(rep(NA_integer_, length(labs)), labs)
+    keys <- list()
+    for(lab in labs) {
+      keyNow <- keyFun(lab)
+      hit <- which(vapply(keys, identical, logical(1), keyNow))
+      if(length(hit) == 0) {
+        keys[[length(keys) + 1]] <- keyNow
+        hit <- length(keys)
+      }
+      groupNow[[lab]] <- hit[1]
+    }
+    groupNow
+  }
+
+  labs <- comparison$label
+  comparison$aic_group <- groupBy(labs, function(lab) list(vid = sort(results[[lab]]$main$d$vidName), resp = responseData(lab)))[labs]
+
+
+  ##### AIC and BIC within each aic_group
+  eqLik <- data.frame()
+  comparison$AIC <- NA_real_
+  comparison$BIC <- NA_real_
+  for(g in unique(comparison$aic_group)) {
+    labsG <- comparison$label[comparison$aic_group == g]
+    for(y in names(results[[labsG[1]]]$pathEqs)) {
+      # Rows (videos) that every model in the group has for this equation
+      vidsCommon <- Reduce(intersect, lapply(labsG, function(lab) {
+        dNow <- results[[lab]]$main$d
+        varsNow <- c(y, varsOf(results[[lab]]$pathEqs[[y]]), "Fish_ID")
+        dNow$vidName[complete.cases(dNow[, varsNow, drop = FALSE])]
+      }))
+      for(lab in labsG) {
+        dNow <- results[[lab]]$main$d
+        mNow <- tryCatch(suppressMessages(fitEq(y, results[[lab]]$pathEqs[[y]], dNow[dNow$vidName %in% vidsCommon, , drop = FALSE], REML = FALSE)),
+                         error = function(e) NULL)
+        if(is.null(mNow)) next
+        llNow <- logLik(mNow)
+        eqLik <- rbind(eqLik, data.frame(aic_group = g, label = lab, equation = y, n = nobs(mNow), logLik = as.numeric(llNow),
+                                         k = attr(llNow, "df"), AIC = -2 * as.numeric(llNow) + 2 * attr(llNow, "df"),
+                                         BIC = -2 * as.numeric(llNow) + log(nobs(mNow)) * attr(llNow, "df")))
+      }
+    }
+  }
+  for(lab in labs) {
+    rowsNow <- eqLik$label == lab
+    if(any(rowsNow)) {
+      comparison$AIC[comparison$label == lab] <- sum(eqLik$AIC[rowsNow])
+      comparison$BIC[comparison$label == lab] <- sum(eqLik$BIC[rowsNow])
+    }
+  }
+  comparison$dAIC <- comparison$AIC - ave(comparison$AIC, comparison$aic_group, FUN = function(x) min(x, na.rm = TRUE))
+  comparison$dBIC <- comparison$BIC - ave(comparison$BIC, comparison$aic_group, FUN = function(x) min(x, na.rm = TRUE))
+
+
+  ##### Cross-validated whole-model R^2 on the rows every comparable model predicts
+  for(o in outcomes) {
+    obsOf <- function(lab) {
+      dNow <- results[[lab]]$main$d
+      dNow <- dNow[order(dNow$vidName), ]
+      list(vid = dNow$vidName, obs = signif(dNow[[o]], 10))
+    }
+    groupO <- groupBy(labs, obsOf)[labs]
+    comparison[[paste0("cv_group_", o)]] <- groupO
+    comparison[[paste0("R2_cv_common_", o)]] <- NA_real_
+    comparison[[paste0("n_cv_common_", o)]]  <- NA_integer_
+    for(g in unique(groupO)) {
+      labsG <- labs[groupO == g]
+      vidsCommon <- Reduce(intersect, lapply(labsG, function(lab) {
+        cvNow <- results[[lab]]$cvPred
+        dNow  <- results[[lab]]$main$d
+        cvNow$vidName[is.finite(cvNow[[o]]) & is.finite(dNow[[o]][match(cvNow$vidName, dNow$vidName)])]
+      }))
+      for(lab in labsG) {
+        cvNow <- results[[lab]]$cvPred
+        dNow  <- results[[lab]]$main$d
+        keep <- cvNow$vidName %in% vidsCommon
+        r2Now <- r2Of(dNow[[o]][match(cvNow$vidName[keep], dNow$vidName)], cvNow[[o]][keep])
+        comparison[[paste0("R2_cv_common_", o)]][comparison$label == lab] <- r2Now[["R2"]]
+        comparison[[paste0("n_cv_common_", o)]][comparison$label == lab]  <- r2Now[["n"]]
+      }
+    }
+  }
+
+
+  ##### Print and save
+  print("")
+  print("################ Model comparison ################")
+  print(comparison[, c("label", "n_rows", "n_parameters", "fisherC", "fisherC_df", "fisherC_p", "aic_group", "AIC", "dAIC", "dBIC")],
+        row.names = FALSE, digits = 4)
+  for(o in outcomes) {
+    print(paste0("Variance explained in ", o, " (local = its own equation; whole = from the exogenous variables through the whole model)"))
+    print(comparison[, c("label", paste0(c("R2_local_", "R2_whole_", "R2_whole_cv_", "cv_group_", "R2_cv_common_", "n_cv_common_"), o))],
+          row.names = FALSE, digits = 3)
+  }
+  print("Which equations drive the AIC differences: see model_comparison_equations.csv (AIC of each equation in each model)")
+
+  write.csv(comparison, file.path(outFolder, "model_comparison.csv"), row.names = FALSE)
+  write.csv(eqLik, file.path(outFolder, "model_comparison_equations.csv"), row.names = FALSE)
+
+  results$comparison <- comparison
+  results$comparisonEquations <- eqLik
+  results$settings <- list(datasetFile = datasetFile, variants = variants, structures = structures, randomTerm = randomTerm,
+                           refType = refType, refFrac = refFrac, nBoot = nBoot, cvFolds = cvFolds,
+                           standardizeIndicators = standardizeIndicators, checkEqs = checkEqs, identities = identityEqs)
+  saveRDS(results, file.path(outFolder, paste0("SEM_results", if(multiPerFish) "" else "_byFish", ".rds")))
   print(paste0("Results saved in: ", normalizePath(outFolder)))
