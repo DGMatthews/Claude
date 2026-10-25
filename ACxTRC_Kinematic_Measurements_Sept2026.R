@@ -1132,6 +1132,12 @@ print(length(unique(finalData$Unique.ID)))
           # +1 for both with the angles from Scan_measurements_from_landmarks.R (counterclockwise-positive, fish facing left)
         oralOpenSign      <- 1   ### CHECK with one individual
         opercularOpenSign <- 1   ### CHECK with one individual
+
+        # Maxilla rotation direction
+          # theta3 is counterclockwise-positive with the fish facing left, so the maxilla's ventral tip swinging forward makes theta3 decrease
+          # The measured Maxilla_ang is positive for that forward swing, so the predicted maxilla rotation and the oral KT are multiplied by -1
+            # to put them in the same direction (opening = positive for both mandible and maxilla). Confirmed by the measured vs. predicted slope (about -1 before)
+        maxillaSign <- -1
         
         # Input rotations used for static KT
         oralStaticAngle      <- pi/6    # 30 degrees
@@ -3255,7 +3261,7 @@ for(i in 1:nVids) {
     
     
     # Static KT (average output rotation / input rotation, from rest to the static input angle)
-    finalData$Oral_4bar_KT      <- wrapAngle(finalData$Oral_theta3_30 - finalData$Oral_theta3_rest) / (oralOpenSign * oralStaticAngle)
+    finalData$Oral_4bar_KT      <- maxillaSign * wrapAngle(finalData$Oral_theta3_30 - finalData$Oral_theta3_rest) / (oralOpenSign * oralStaticAngle)
     finalData$Opercular_4bar_KT <- wrapAngle(finalData$Opercular_theta4_10 - finalData$Opercular_theta4_rest) / (opercularOpenSign * opercularStaticAngle)
     
     
@@ -3285,17 +3291,17 @@ for(i in 1:nVids) {
     finalData$Oral_theta2_tmax <- finalData$Oral_theta2_rest + oralOpenSign * finalData$Mandible_ang_tmax
     finalData$Oral_theta3_tmax <- fourBarTheta3(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx)
     finalData$Oral_theta4_tmax <- fourBarTheta4(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx)
-    # Oral_KT_tmax (instantaneous d theta3 / d theta2)
-    finalData$Oral_KT_tmax <- fourBarKTinst(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx, output = "theta3")
-    # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest)
-    finalData$Maxilla_ang_predicted_tmax <- wrapAngle(finalData$Oral_theta3_tmax - finalData$Oral_theta3_rest)
+    # Oral_KT_tmax (instantaneous d theta3 / d theta2, times maxillaSign so opening is positive for both)
+    finalData$Oral_KT_tmax <- maxillaSign * fourBarKTinst(finalData$Oral_theta2_tmax, oralIn, oralCp, oralOut, oralFx, output = "theta3")
+    # Maxilla_ang_predicted_tmax (radians, change in theta3 from rest, in the measured Maxilla_ang direction)
+    finalData$Maxilla_ang_predicted_tmax <- maxillaSign * wrapAngle(finalData$Oral_theta3_tmax - finalData$Oral_theta3_rest)
 
     # Oral four-bar at tmaxVel
     finalData$Oral_theta2_tmaxVel <- finalData$Oral_theta2_rest + oralOpenSign * finalData$Mandible_ang_tmaxVel
     finalData$Oral_theta3_tmaxVel <- fourBarTheta3(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx)
     finalData$Oral_theta4_tmaxVel <- fourBarTheta4(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx)
-    finalData$Oral_KT_tmaxVel <- fourBarKTinst(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx, output = "theta3")
-    finalData$Maxilla_ang_predicted_tmaxVel <- wrapAngle(finalData$Oral_theta3_tmaxVel - finalData$Oral_theta3_rest)
+    finalData$Oral_KT_tmaxVel <- maxillaSign * fourBarKTinst(finalData$Oral_theta2_tmaxVel, oralIn, oralCp, oralOut, oralFx, output = "theta3")
+    finalData$Maxilla_ang_predicted_tmaxVel <- maxillaSign * wrapAngle(finalData$Oral_theta3_tmaxVel - finalData$Oral_theta3_rest)
 
     # Opercular four-bar at tmax
     finalData$Opercular_theta2_tmax <- finalData$Opercular_theta2_rest + opercularOpenSign * finalData$Neurocranium_rotation_tmax
