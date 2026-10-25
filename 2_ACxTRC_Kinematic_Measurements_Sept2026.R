@@ -3561,6 +3561,8 @@ for(i in 1:nVids) {
   # finalData and skippedVids as R objects, for "unprocessed" mode next time
   saveRDS(list(finalData = finalData, skippedVids = skippedVids), outResume)
 
+  print(paste0("Saved ", nrow(finalData), " videos to: ", outFinalData, " (", format(Sys.time(), "%Y-%m-%d %H:%M"), ")"))
+
 
 #############################
 # Errors in this run        #
