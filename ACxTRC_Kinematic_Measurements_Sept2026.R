@@ -315,6 +315,30 @@ try(print(h5ls(file=fileNames[1])))
     }
 
 
+    # Count how often each log message came up, with video names and numbers removed so the same problem is counted together
+      # e.g. "Hyoid depression ... (max 1.75 mm ...) in: vid01" and "(max 2.10 mm ...) in: vid02" count as one message
+      # Returns a data frame: group (section or stage), message, count, most frequent first
+    countMessages <- function(groups, messages) {
+      if(length(messages) == 0) {
+        return(data.frame(group = character(0), message = character(0), count = integer(0)))
+      }
+      msgNow <- sub(" in: .*$", "", messages)
+      msgNow <- gsub("-?[0-9]+(\\.[0-9]+)?(e-?[0-9]+)?", "#", msgNow)
+      counts <- aggregate(list(count = rep(1L, length(msgNow))), by = list(group = groups, message = msgNow), FUN = sum)
+      counts[order(-counts$count), ]
+    }
+
+    # Print the counts one per line: count, section/stage, message
+    printMessageCounts <- function(counts) {
+      if(nrow(counts) == 0) {
+        cat("  none\n")
+      }
+      for(k in seq_len(nrow(counts))) {
+        cat(sprintf("%6d  %-16s %s\n", counts$count[k], counts$group[k], counts$message[k]))
+      }
+    }
+
+
     # Add a row to the skipped-analysis log
       # skippedLog = the current log (skippedVids), returns the log with the new row added
       # section = which part of the analysis was skipped, reason = why
@@ -535,6 +559,7 @@ finalData <- data.frame(vidName = fileNames2,
                         Ttotal = rep(NA_real_, nVids),
                         Tstart = rep(NA_real_, nVids),
                         Tend = rep(NA_real_, nVids),
+                        Tend_censored = rep(NA, nVids),
                         Ttpg = rep(NA_real_, nVids),
                         tmax = rep(NA_real_, nVids),
                         tmaxVel = rep(NA_real_, nVids),
@@ -1522,8 +1547,16 @@ for(i in 1:nVids) {
                 endPos <- which(R_t[peakFrame:length(R_t)]<startThreshold)[1] + peakFrame - 1 #Have to add the time of peak position because it found which frame after peak was below threshold
                 Tend <- timeSeriesNow[endPos]
                 
-                if (!is.na(Tstart) && is.na(Tend)) {
-                  stop("No strike end found (gape never drops below threshold after peak) in: ", fileNames2[i])
+                # No strike end in the video (gape never drops back below the threshold): the video is kept, with Tend set to the last frame with gape
+                  # Tend_censored = TRUE. Values that need the true end of the strike (duration, strike means) are set to NA after the loop
+                  # Peak times, Max values and values at tmax / tmaxVel don't need it
+                if (!is.na(Tstart)) {
+                  finalData$Tend_censored[i] <- is.na(Tend)
+                  if (is.na(Tend)) {
+                    endPos <- max(which(!is.na(R_t)))
+                    Tend   <- timeSeriesNow[endPos]
+                    skippedVids <- addSkip(skippedVids, fileNames2[i], "Gape", "No strike end found (gape never drops below threshold after peak): Tend set to the last frame with gape. Duration and strike means are NA")
+                  }
                 }
             
             }
@@ -3106,6 +3139,29 @@ for(i in 1:nVids) {
   
         
 #####################################################
+# Videos with no strike end                         #
+#####################################################
+  # Tend_censored = TRUE: the gape never dropped back below the threshold, so Tend is only the last frame with gape
+  # Values that need the real end of the strike are set to NA: duration, values scaled by it, and means or covariances over Tstart-Tend
+    # Kinetic_Synchronization (divided by Ttotal) becomes NA with Ttotal
+  # Kept: Tstart, peak times (Ttpg, Time_*), Max values, values at tmax / tmaxVel, means up to a peak, and buccal volume
+    # (buccal volume near the cut-off end is less reliable, since the hyoid is set to 0 at Tend where it isn't visible)
+
+  censorCols <- c("Ttotal", "Relative_ttpg", "Relative_tmax", "Relative_tmaxVel",
+                  "R_t_mean", "A_mean", "Protrusion_t_mean", "Mandible_depression_t_mean",
+                  "Hyoid_depression_t_mean", "Hyoid_excursion_t_mean_backup",
+                  "U_ram_mean", "U_ram_mean_frames", "U_ram_body_mean", "U_ram_body_mean_frames",
+                  "Cov_R_Uram", "Cov_R_Uflowff", "Cov_R_Uflowefmeas", "U_flow_ff_predicted_mean_full")
+  censorRows <- which(finalData$Tend_censored %in% TRUE)
+  for(colNow in intersect(censorCols, names(finalData))) {
+    finalData[[colNow]][censorRows] <- NA
+  }
+  print(paste0(length(censorRows), " videos with no strike end (kept, with duration and strike means NA)"))
+
+
+
+
+#####################################################
 # Four-bar systems (after the loop)                 #
 #####################################################
   # Here rather than before the loop, because the mouth-opening correction needs the closed Nasal-LJ distance from all of a fish's videos
@@ -3173,7 +3229,7 @@ for(i in 1:nVids) {
       # Fish whose opercular theta2 couldn't be solved
     print(unique(finalData$Unique.ID[is.na(finalData$Opercular_theta2_rest) & !is.na(finalData$Opercular_theta2_rest_scan)]))
       # Spread of the closed distances across each fish's videos (mm). A wide spread = open first frames or a fish turned from the camera
-    closedSpread <- tapply(finalData$Nasal_LJ_closed_video, finalData$Unique.ID, function(x) diff(range(x, na.rm = TRUE)))
+    closedSpread <- tapply(finalData$Nasal_LJ_closed_video, finalData$Unique.ID, function(x) if(all(is.na(x))) NA_real_ else diff(range(x, na.rm = TRUE)))
     print(summary(closedSpread[is.finite(closedSpread)]))
     print(head(sort(closedSpread[is.finite(closedSpread)], decreasing = TRUE), 10))
 
@@ -3310,12 +3366,9 @@ for(i in 1:nVids) {
   print(corCheck(finalData$Maxilla_ang_tmax, finalData$Maxilla_ang_predicted_tmax))
   
   
-    # Skipped analyses: how many videos per section and reason
+    # Skipped analyses: how many times each reason came up, by section (numbers shown as #). Full list in the skippedVids file
   print(table(skippedVids$section))
-  print(table(skippedVids$reason))
-
-    # Videos with the most problems (best ones to look at first when checking landmarks)
-  print(head(sort(table(skippedVids$vidName), decreasing = TRUE), 20))
+  printMessageCounts(countMessages(skippedVids$section, skippedVids$reason))
 
     # Save the log so I can work through it alongside the videos
   write.csv(skippedVids, outSkipped, row.names = FALSE)
@@ -3410,7 +3463,8 @@ for(i in 1:nVids) {
   print(paste0(sum(finalData$processed), " of ", nVids, " videos processed (", length(keepVids), " reused from the last run, ",
                length(processedThisRun), " analysed this run). ", sum(!finalData$processed), " not processed"))
   print(table(failedVids$stage))
-  print(failedVids)
+    # How many times each error came up, by stage (numbers shown as #). Which videos: see the failedVids file
+  printMessageCounts(countMessages(failedVids$stage, failedVids$error))
 
 
 
