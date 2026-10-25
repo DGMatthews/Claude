@@ -13,7 +13,8 @@
   # Choices that aren't settled yet are settings (### CHANGE): one row per strike or per fish, the epaxial section,
     # the buccal width model, the measured-flow version, and whether videos with no real strike end are kept
 
-  # Not done here: size correction (raw lengths are saved), and the nonlinear-path linearization (done in the SEM)
+  # No size correction, on purpose: the SEM models physical outcomes, so raw sizes are used. Size correction is only for the genetic mapping
+  # Not done here: the nonlinear-path linearization (done in the SEM)
 
 rm(list=ls())
 
@@ -31,7 +32,8 @@ rm(list=ls())
 
   outPrefix <- file.path(pathData, 'SEM_dataset')   # saves <outPrefix>_tmax.csv and <outPrefix>_tmaxVel.csv
 
-  # One row per strike (keep Fish_ID for a random effect in each equation) or per fish (mean of its strikes)
+  # One row per strike (keep Fish_ID for a random effect in each equation) or per fish (each variable's best value across the fish's strikes:
+    # the maximum, except Max_sub_pressure, where the most negative value is the strongest suction)
   unitOfAnalysis <- "strike"   ### CHANGE  "strike" or "fish"
 
   # Which epaxial cross-section is Epaxial_CSA
@@ -47,9 +49,9 @@ rm(list=ls())
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
 
   # Effort inputs from the feeding data sheet: name in this dataset = column in the data sheet
+    # Satiation isn't in the data sheet: it's the strike number for the fish (XX in ..._EXX of the video name), set below
   effortCols <- c(Prey_num     = "Prey.number",         ### CHECK
-                  Fasting_time = "Days.without.food",   ### CHECK
-                  Satiation    = "Satiation")           ### CHECK  set to the real column name, or remove the line if there isn't one
+                  Fasting_time = "Days.without.food")   ### CHECK
 
 
 #####################
@@ -107,6 +109,13 @@ rm(list=ls())
       kin[[nm]] <- NA
       print(paste0("Data sheet has no column '", effortCols[[nm]], "': ", nm, " is NA"))
     }
+  }
+
+  # Satiation = strike number for the fish (E01 = 1, E02 = 2, ...), from the end of the video name
+  kin$Satiation <- suppressWarnings(as.numeric(sub("^.*_E([0-9]+)$", "\\1", kin$vidName)))
+  if(any(is.na(kin$Satiation))) {
+    print(paste0(sum(is.na(kin$Satiation)), " video names don't end in _E##, so their Satiation is NA:"))
+    print(head(kin$vidName[is.na(kin$Satiation)], 10))
   }
 
 
@@ -207,11 +216,15 @@ rm(list=ls())
     names(out)[names(out) == "Ttotal"] <- "T"
     names(out)[names(out) == "Ttpg"]   <- "ttpg"
 
-    # One row per fish: mean of each numeric column over the fish's strikes (NA if none of its strikes have a value)
+    # One row per fish: each numeric column's maximum over the fish's strikes (NA if none of its strikes have a value)
+      # Max_sub_pressure takes the minimum instead (most negative = strongest suction)
+      # Each column's best value can come from a different strike, so a fish's row isn't one real strike
     if(unitOfAnalysis == "fish") {
       numCols <- names(out)[sapply(out, is.numeric) | sapply(out, is.logical)]
       fishOut <- aggregate(out[numCols], by = list(Fish_ID = out$Fish_ID),
-                           FUN = function(x) if(all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE))
+                           FUN = function(x) if(all(is.na(x))) NA_real_ else max(x, na.rm = TRUE))
+      fishOut$Max_sub_pressure <- as.vector(tapply(out$Max_sub_pressure, out$Fish_ID,
+                                                   function(x) if(all(is.na(x))) NA_real_ else min(x, na.rm = TRUE))[fishOut$Fish_ID])
       fishOut$n_strikes <- as.vector(table(out$Fish_ID)[fishOut$Fish_ID])
       fishOut <- merge(unique(out[, c("Fish_ID", "Family", "Animal.ID", "timeBasis")]), fishOut, by = "Fish_ID")
       return(fishOut)
