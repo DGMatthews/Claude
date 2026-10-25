@@ -16,7 +16,11 @@
 
 rm(list=ls())
 
-script3 <- '3_PIV_Flow_Measurements.R'   ### CHANGE  path to script 3
+# Full path to script 3 (or just the file name if R's working directory is the folder with the scripts)
+script3 <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Scripts/3_PIV_Flow_Measurements.R'   ### CHANGE
+if(!file.exists(script3)) {
+  stop("Can't find script 3 at '", script3, "'. Set script3 to its full path (working directory now: ", getwd(), ")")
+}
 
 
 ##### Settings and functions from script 3 (everything above "Read the data")
@@ -28,7 +32,7 @@ script3 <- '3_PIV_Flow_Measurements.R'   ### CHANGE  path to script 3
 ##### Settings for this check
   nCheck      <- 20                         ### CHANGE  number of videos to check
   lambdaMults <- c(0.2, 1, 5)               ### CHANGE  multiples of lambdaRefFlow to compare (1 = current)
-  plotFolder  <- 'Flow_smoothing_check'     ### CHANGE  folder for the PNGs (made if needed)
+  plotFolder  <- file.path(pathData, 'Flow_smoothing_check')   ### CHANGE  folder for the PNGs (made if needed). pathData comes from script 3
   set.seed(1)
 
 
