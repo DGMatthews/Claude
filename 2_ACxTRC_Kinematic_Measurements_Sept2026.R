@@ -979,8 +979,19 @@ print(length(unique(finalData$Unique.ID)))
 
 
 # Get time of peak pressure and peak velocity from the PIV analysis for each video
-  # Remove the suffix from the PIV video names, because it's not in the data sheet
-  Pressure_vel_Data$video <- sub("_0{5,6}$", "", Pressure_vel_Data$video)
+  # Matching key for PIV video names, so small naming differences between the PIV files and the data sheet still match
+    # Removes the take number at the end (_000000, _000001, ...), collapses doubled underscores ("__A9.10.02" = "_A9.10.02"),
+    # then applies the fixes in pivNameFixes (old text = new text) for typos that can't be caught by a rule
+  pivNameFixes <- c("_2.8_11.11_" = "_8.11.11_")   ### CHANGE  add any other PIV file name typos here
+  pivKey <- function(x) {
+    x <- sub("_[0-9]{6}$", "", as.character(x))
+    x <- gsub("_+", "_", x)
+    for(k in seq_along(pivNameFixes)) {
+      x <- gsub(names(pivNameFixes)[k], pivNameFixes[[k]], x, fixed = TRUE)
+    }
+    x
+  }
+  Pressure_vel_Data$videoKey <- pivKey(Pressure_vel_Data$video)
   
   # Columns to hold the PIV values (NA for videos without good PIV data)
   # PIV video name for each video (from the data sheet), so the flow script can find its PIV files
@@ -997,7 +1008,7 @@ print(length(unique(finalData$Unique.ID)))
     pivNameNow <- vidData$PIV.filename[finalData$equivVidRow[i]]
     
     # Find that PIV file in the pressure/velocity results
-    pressureRowNow <- which(Pressure_vel_Data$video == pivNameNow)
+    pressureRowNow <- which(Pressure_vel_Data$videoKey == pivKey(pivNameNow))
     
     # No PIV data for this video: leave the PIV columns as NA
     if(length(pressureRowNow) == 0) {
@@ -1025,7 +1036,7 @@ print(length(unique(finalData$Unique.ID)))
   
   # Check: how many videos got PIV data, and were any PIV results not used?
   print(sum(!is.na(finalData$tmax)))
-  print(setdiff(Pressure_vel_Data$video, vidData$PIV.filename[finalData$equivVidRow]))
+  print(Pressure_vel_Data$video[!(Pressure_vel_Data$videoKey %in% pivKey(vidData$PIV.filename[finalData$equivVidRow]))])
   
   
   
@@ -1037,7 +1048,7 @@ print(length(unique(finalData$Unique.ID)))
 
   # Read in the measurements from the scans for each individual
     # All lengths in mm, measured in a lateral (sagittal plane) view so they match what the camera sees
-    scanData <- read.csv('C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/scan_measurements.csv')   ### CHANGE path (written by Scan_measurements_from_landmarks.R)
+    scanData <- read.csv('C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data/scan_measurements.csv')   ### CHANGE path (written by 1_Scan_measurements_from_landmarks.R)
     
     # Columns in the scan file that identify each individual
     scanFamilyCol <- "Family"          ### CHANGE to the family column name in the scan file
@@ -1144,7 +1155,7 @@ print(length(unique(finalData$Unique.ID)))
 ###################################
 
         # Are the scan angles in degrees? If so, convert to radians
-        scanAnglesInDegrees <- FALSE   ### CHANGE to TRUE if the scan angles are in degrees (Scan_measurements_from_landmarks.R saves radians)
+        scanAnglesInDegrees <- FALSE   ### CHANGE to TRUE if the scan angles are in degrees (1_Scan_measurements_from_landmarks.R saves radians)
         
         if(scanAnglesInDegrees) {
           angleCols <- intersect(c("Oral_theta2_rest_scan", "Opercular_theta2_rest_scan", "Opercular_theta4_rest_scan"), names(finalData))
@@ -1156,7 +1167,7 @@ print(length(unique(finalData$Unique.ID)))
         # Direction of opening in four-bar angles
           # Mandible_ang and Neurocranium_rotation are positive for opening/elevation
           # Use +1 if that increases theta2 in your four-bar convention, -1 if it decreases it
-          # +1 for both with the angles from Scan_measurements_from_landmarks.R (counterclockwise-positive, fish facing left)
+          # +1 for both with the angles from 1_Scan_measurements_from_landmarks.R (counterclockwise-positive, fish facing left)
         oralOpenSign      <- 1   ### CHECK with one individual
         opercularOpenSign <- 1   ### CHECK with one individual
 

@@ -4,7 +4,7 @@
 #############################################################################################
   # Reads the hard-tissue landmarks (one .mrk.json per fish, 27 points in the order of List_of_landmarks.docx)
     # and the soft-tissue cross-sectional areas (soft_tissue_areas.csv from the Slicer area script),
-    # calculates every scan measurement, and saves one row per fish for ACxTRC_Kinematic_Measurements_Sept2026.R
+    # calculates every scan measurement, and saves one row per fish for 2_ACxTRC_Kinematic_Measurements_Sept2026.R
   # All lengths in mm, angles in radians, areas in mm^2 (the Slicer coordinates are already in mm)
 
   # Skull frame (same baseline the video uses):

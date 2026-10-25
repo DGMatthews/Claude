@@ -4,7 +4,7 @@
 #############################################################################################
   # Reads the PIV pressure and velocity traces for each kinematic video, cleans and smooths them,
     # and calculates the flow and pressure variables for the SEM
-  # Run after ACxTRC_Kinematic_Measurements_Sept2026.R: it uses that script's output (strike timing, gape, ram speed)
+  # Run after 2_ACxTRC_Kinematic_Measurements_Sept2026.R: it uses that script's output (strike timing, gape, ram speed)
   # PIV frame 0 = kinematic frame 0 (time 0), both 500 fps. In R, kinematic frame index k (1, 2, ...) = PIV frame k - 1
 
   # Three versions of the measured flow speed (U_flow_ef_meas), each with its own set of outputs (column suffix):
@@ -16,6 +16,8 @@
     # _staticRaw:  the fixed-node velocity without the correction (reference)
   # The version chosen in mainVersion is also saved without a suffix, under the names the SEM uses (U_flow_ef_meas_tmax, U_flow_ff_mean, ...)
 
+  # Videos included: those in final_results_consistency_filtered.xlsx (the kinematics script reads tmax, tmaxVel and the peak values from it)
+    # final_results_all_passed.xlsx only supplies where the peak velocity and pressure nodes were (px)
   # Pressure: Max_sub_pressure = the PIV pipeline's peak pressure (Pa, negative = sub-ambient), only for videos whose pressure analysis passed
   # Flow is a speed (magnitude, m/s from the PIV, converted to mm/s), assumed to be along the strike axis like U_ram
   # U_flow_ff = U_flow_ef_meas - U_ram (fish frame)
@@ -34,7 +36,8 @@ rm(list=ls())
 
   # PIV output
   pathPIVfinal     <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Final export'
-  pivResultsFile   <- file.path(pathPIVfinal, 'final_results_all_passed.xlsx')
+  pivFilteredFile  <- file.path(pathPIVfinal, 'final_results_consistency_filtered.xlsx')   # decides which videos are included (same file the kinematics uses for tmax)
+  pivResultsFile   <- file.path(pathPIVfinal, 'final_results_all_passed.xlsx')             # only used for the peak node positions (px)
   pathRawTraces    <- file.path(pathPIVfinal, 'Raw traces')
   pathMouthFront   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Mouth front velocity traces/Traces'
   pathMouthMarks   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/Mouth Landmarks'
@@ -44,7 +47,7 @@ rm(list=ls())
   suffixMouthFront <- '_mouth_front_velocity_trace.csv'
   suffixMouthMarks <- '.mouthlandmarks.csv'
 
-  # Kinematics output (from ACxTRC_Kinematic_Measurements_Sept2026.R)
+  # Kinematics output (from 2_ACxTRC_Kinematic_Measurements_Sept2026.R)
   pathData      <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'
   kinFinalData  <- file.path(pathData, 'kinematicsAll_sleapOutput.csv')
   kinTimeSeries <- file.path(pathData, 'kinematicsTimeSeries.rds')
@@ -158,6 +161,20 @@ rm(list=ls())
     }
 
 
+    # Matching key for PIV video names, so small naming differences between the PIV files and the data sheet still match
+      # Removes the take number at the end (_000000, _000001, ...), collapses doubled underscores ("__A9.10.02" = "_A9.10.02"),
+      # then applies the fixes in pivNameFixes (old text = new text) for typos that can't be caught by a rule
+    pivNameFixes <- c("_2.8_11.11_" = "_8.11.11_")   ### CHANGE  keep the same as in the kinematics script
+    pivKey <- function(x) {
+      x <- sub("_[0-9]{6}$", "", as.character(x))
+      x <- gsub("_+", "_", x)
+      for(k in seq_along(pivNameFixes)) {
+        x <- gsub(names(pivNameFixes)[k], pivNameFixes[[k]], x, fixed = TRUE)
+      }
+      x
+    }
+
+
     # Add a row to the skipped log
     addSkip <- function(skippedLog, vidName, section, reason) {
       rbind(skippedLog, data.frame(vidName = vidName, section = section, reason = reason))
@@ -171,8 +188,10 @@ rm(list=ls())
   kin   <- read.csv(kinFinalData, stringsAsFactors = FALSE)
   kinTS <- readRDS(kinTimeSeries)
 
-  pivResults <- read_excel(pivResultsFile)
-  pivResults$videoShort <- sub("_0{5,6}$", "", pivResults$video)   # same trimming as the kinematics script (the data sheet has no _000000)
+  pivFiltered <- read_excel(pivFilteredFile)
+  pivFiltered$videoKey <- pivKey(pivFiltered$video)
+  pivResults  <- read_excel(pivResultsFile)
+  pivResults$videoKey  <- pivKey(pivResults$video)
 
   # PIV name for each kinematic video
   if(!("PIV.filename" %in% names(kin))) {
@@ -220,16 +239,30 @@ rm(list=ls())
       if(is.na(kin$PIV.filename[i]) || kin$PIV.filename[i] == "") {
         next   # no PIV for this video
       }
-      pivRowNow <- which(pivResults$videoShort == kin$PIV.filename[i])
-      if(length(pivRowNow) == 0) {
-        next   # PIV analysis didn't pass, or no PIV for this video
+      # Included only if it's in the consistency-filtered results
+      filtRowNow <- which(pivFiltered$videoKey == pivKey(kin$PIV.filename[i]))
+      if(length(filtRowNow) == 0) {
+        next   # not in the filtered PIV results, or no PIV for this video
       }
-      if(length(pivRowNow) > 1) {
-        skippedFlow <- addSkip(skippedFlow, vidNow, "PIV match", paste0("Matched ", length(pivRowNow), " rows in the PIV results (needs 1)"))
+      if(length(filtRowNow) > 1) {
+        skippedFlow <- addSkip(skippedFlow, vidNow, "PIV match", paste0("Matched ", length(filtRowNow), " rows in the filtered PIV results (needs 1)"))
         next
       }
-      pivNow <- pivResults[pivRowNow, ]
+      pivNow <- pivFiltered[filtRowNow, ]
       flowData$pivVideo[i] <- pivNow$video
+
+      # Peak node positions (px) from the all-passed results. NA if the video isn't there (then no node distances or static correction)
+      posRowNow <- which(pivResults$videoKey == pivKey(kin$PIV.filename[i]))
+      if(length(posRowNow) == 1) {
+        for(colNow in c("max_velocity_x_px", "max_velocity_y_px", "pressure_peak_x_px", "pressure_peak_y_px")) {
+          pivNow[[colNow]] <- pivResults[[colNow]][posRowNow]
+        }
+      } else {
+        for(colNow in c("max_velocity_x_px", "max_velocity_y_px", "pressure_peak_x_px", "pressure_peak_y_px")) {
+          pivNow[[colNow]] <- NA_real_
+        }
+        skippedFlow <- addSkip(skippedFlow, vidNow, "PIV match", paste0("Matched ", length(posRowNow), " rows in the all-passed PIV results for the node positions (needs 1)"))
+      }
 
       if(is.na(kin$nFrames[i]) || is.na(kin$frameRate[i])) {
         skippedFlow <- addSkip(skippedFlow, vidNow, "Kinematics", "No kinematic frames for this video")
@@ -440,7 +473,7 @@ rm(list=ls())
 #  Checks  #
 ############
 
-  print(paste0(sum(!is.na(flowData$pivVideo)), " of ", nVids, " kinematic videos matched to a passed PIV analysis"))
+  print(paste0(sum(!is.na(flowData$pivVideo)), " of ", nVids, " kinematic videos matched to the consistency-filtered PIV results"))
 
   # Files missing, and other problems (counted)
   if(nrow(skippedFlow) > 0) {
