@@ -983,6 +983,9 @@ print(length(unique(finalData$Unique.ID)))
   Pressure_vel_Data$video <- sub("_0{5,6}$", "", Pressure_vel_Data$video)
   
   # Columns to hold the PIV values (NA for videos without good PIV data)
+  # PIV video name for each video (from the data sheet), so the flow script can find its PIV files
+  finalData$PIV.filename <- as.character(vidData$PIV.filename[finalData$equivVidRow])
+
   finalData$tPeakPressure <- NA_real_   # seconds
   finalData$tPeakVelocity <- NA_real_   # seconds
   finalData$peakPressure_Pa <- NA_real_
