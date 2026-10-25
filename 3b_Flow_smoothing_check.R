@@ -31,7 +31,7 @@ if(!file.exists(script3)) {
 
 ##### Settings for this check
   nCheck      <- 20                         ### CHANGE  number of videos to check
-  lambdaMults <- c(0.2, 1, 5)               ### CHANGE  multiples of lambdaRefFlow to compare (1 = current)
+  lambdaMults <- c(0.2, 1, 5)               ### CHANGE  multiples of script 3's lambdaRefVelocity / lambdaRefPressure to compare (1 = current)
   plotFolder  <- file.path(pathData, 'Flow_smoothing_check')   ### CHANGE  folder for the PNGs (made if needed). pathData comes from script 3
   set.seed(1)
 
@@ -69,13 +69,13 @@ if(!file.exists(script3)) {
     fileTraces <- file.path(pathRawTraces, paste0(pivVideo, suffixPeakTraces))
     if(file.exists(fileTraces)) {
       tr <- read.csv(fileTraces)
-      traces$staticRaw_velocity <- list(y = toKinFrames(tr$velocity_time_ms, tr$velocity_m_per_s * 1000, nNow, frameRate), madFloor = madFloorVel, unit = "mm/s")
-      traces$pressure           <- list(y = toKinFrames(tr$pressure_time_ms, tr$pressure_Pa, nNow, frameRate), madFloor = madFloorPressure, unit = "Pa")
+      traces$staticRaw_velocity <- list(y = toKinFrames(tr$velocity_time_ms, tr$velocity_m_per_s * 1000, nNow, frameRate), madFloor = madFloorVel, lambdaRef = lambdaRefVelocity, unit = "mm/s")
+      traces$pressure           <- list(y = toKinFrames(tr$pressure_time_ms, tr$pressure_Pa, nNow, frameRate), madFloor = madFloorPressure, lambdaRef = lambdaRefPressure, unit = "Pa")
     }
     fileFront <- file.path(pathMouthFront, paste0(pivVideo, suffixMouthFront))
     if(file.exists(fileFront)) {
       fr <- read.csv(fileFront)
-      traces$mouthFront_velocity <- list(y = toKinFrames(fr$time_ms, fr$mouth_front_velocity_raw_m_per_s * 1000, nNow, frameRate), madFloor = madFloorVel, unit = "mm/s")
+      traces$mouthFront_velocity <- list(y = toKinFrames(fr$time_ms, fr$mouth_front_velocity_raw_m_per_s * 1000, nNow, frameRate), madFloor = madFloorVel, lambdaRef = lambdaRefVelocity, unit = "mm/s")
     }
     traces <- traces[sapply(traces, function(x) sum(!is.na(x$y)) >= 10)]
     if(length(traces) == 0) {
@@ -88,7 +88,7 @@ if(!file.exists(script3)) {
 
     for(trNm in names(traces)) {
       yRaw <- traces[[trNm]]$y
-      fits <- lapply(lambdaMults, function(m) smoothTrace(yRaw, timeNow, traces[[trNm]]$madFloor, lambdaRefFlow * m))
+      fits <- lapply(lambdaMults, function(m) smoothTrace(yRaw, timeNow, traces[[trNm]]$madFloor, traces[[trNm]]$lambdaRef * m))
 
       # Value panel
       plot(timeNow, yRaw, pch = 16, cex = 0.5, col = "grey50", main = paste(trNm), xlab = "Time (s)", ylab = traces[[trNm]]$unit)
