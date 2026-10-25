@@ -2,7 +2,7 @@
 #############################################################################################
 # ACxTRC kinematics: JAW-SCANS-ONLY VERSION                                                  #
 #############################################################################################
-  # Permanently separate copy of ACxTRC_Kinematic_Measurements_Sept2026.R, for results that only need
+  # Permanently separate copy of 2_ACxTRC_Kinematic_Measurements_Sept2026.R, for results that only need
     # anatomical landmarks from the mandible, maxilla and premaxilla
   # Everything that needs other scan measurements is removed:
     # Mandible angle and depression (need Nasal_QMJ_dist, which needs the nasal bone)

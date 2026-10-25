@@ -4,7 +4,7 @@
 #############################################################################################
   # Reads the PIV pressure and velocity traces for each kinematic video, cleans and smooths them,
     # and calculates the flow and pressure variables for the SEM
-  # Run after ACxTRC_Kinematic_Measurements_Sept2026.R: it uses that script's output (strike timing, gape, ram speed)
+  # Run after 2_ACxTRC_Kinematic_Measurements_Sept2026.R: it uses that script's output (strike timing, gape, ram speed)
   # PIV frame 0 = kinematic frame 0 (time 0), both 500 fps. In R, kinematic frame index k (1, 2, ...) = PIV frame k - 1
 
   # Three versions of the measured flow speed (U_flow_ef_meas), each with its own set of outputs (column suffix):
@@ -47,7 +47,7 @@ rm(list=ls())
   suffixMouthFront <- '_mouth_front_velocity_trace.csv'
   suffixMouthMarks <- '.mouthlandmarks.csv'
 
-  # Kinematics output (from ACxTRC_Kinematic_Measurements_Sept2026.R)
+  # Kinematics output (from 2_ACxTRC_Kinematic_Measurements_Sept2026.R)
   pathData      <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'
   kinFinalData  <- file.path(pathData, 'kinematicsAll_sleapOutput.csv')
   kinTimeSeries <- file.path(pathData, 'kinematicsTimeSeries.rds')

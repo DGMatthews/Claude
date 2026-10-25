@@ -4,7 +4,7 @@
 #############################################################################################
   # Fits a few test videos over a range of smoothing values and saves plots and tables,
     # so lambdaRef, lambdaRefDerived and lambdaRefRam can be chosen and pasted into
-    # ACxTRC_Kinematic_Measurements_Sept2026.R and ACxTRC_Kinematic_Measurements_JawScansOnly.R
+    # 2_ACxTRC_Kinematic_Measurements_Sept2026.R and ACxTRC_Kinematic_Measurements_JawScansOnly.R
   # Uses the same Hampel filter, gap filling and span scaling as the kinematics scripts
   # Works in pixels and frames. smooth.spline's lambda doesn't depend on the units of x or y,
     # so the chosen values apply directly to the kinematics scripts (which work in mm and seconds)
