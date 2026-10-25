@@ -17,7 +17,7 @@
 rm(list=ls())
 
 # Full path to script 3 (or just the file name if R's working directory is the folder with the scripts)
-script3 <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Scripts/3_PIV_Flow_Measurements.R'   ### CHANGE
+script3 <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/3_PIV_Flow_Measurements.R'   ### CHANGE
 if(!file.exists(script3)) {
   stop("Can't find script 3 at '", script3, "'. Set script3 to its full path (working directory now: ", getwd(), ")")
 }
