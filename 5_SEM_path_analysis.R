@@ -141,18 +141,17 @@ library(lmerTest)
                              "+ I(rho * R_tmax * U_flow_ff_acc_tmax / 1e6) + I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
                              "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)"),
 
-    # Performance 2 (*): T<A><U_flow_ff> + T Cov(A, U_flow_ff). Coefficients are 1 if Total_ingested_volume is in mm^3
-    Total_ingested_volume = "I(T * A_mean * U_flow_ff_mean) + I(T * Cov_A_Uflowff)",   ### CHECK units of Total_ingested_volume
+    # Performance 2, Total_ingested_volume = T<A><U_flow_ff> + T Cov(A, U_flow_ff), is an identity (below): script 3 calculates it this way
 
     # Gape (#)
     R_tmax     = "Protrusion_tmax + Mandible_depression_tmax",
     R_vel_tmax = "Protrusion_vel_tmax + Mandible_dep_vel_tmax",
-    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean",
+    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_tmax",   # mean gape also depends on the peak gape
 
     # Protrusion (#)
     Protrusion_tmax     = "Neurocranium_tip_disp_tmax + Maxilla_tip_disp_tmax",
     Protrusion_vel_tmax = "Neurocranium_linear_vel_tmax + Maxilla_linear_vel_tmax",
-    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM",
+    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_tmax",   # mean protrusion also depends on the peak
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
@@ -177,9 +176,19 @@ library(lmerTest)
 
     # Maxilla (*): output angular velocity = input angular velocity x KT
     Maxilla_angular_vel_tmax = "I(Mandible_angular_vel_tmax * {OralKT})",
+    # Linear velocity of the maxilla tip = angular velocity x maxilla length (*). Measured separately (tip landmark), so fitted
+    Maxilla_linear_vel_tmax  = "I(Maxilla_length * Maxilla_angular_vel_tmax)",
 
     # Effort (#), on the factor scores from step 1
-    Effort_score = "Prey_num + Satiation + Fasting_time")
+    Effort_score = "Prey_num + Satiation + Fasting_time",
+
+    # Effort drives the timing of the strike (#). T is also an Effort indicator, so its equation restates the measurement model
+      # in the path model, so that Effort's effects through T reach the outcomes
+    T                = "Effort_score",
+    ttpg             = "Effort_score",
+    Time_hyoid       = "Effort_score",
+    Time_cranial     = "Effort_score",
+    tmax_from_Tstart = "Effort_score")
 
   # Check equations: how well the four-bar models predict the measured angles
     # Fitted and reported, but not part of the path model (nothing downstream uses them)
@@ -203,6 +212,8 @@ library(lmerTest)
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
     A_tmax                   = "(pi * W_jaw / 2) * R_tmax",       # gape area, as script 2 calculates it
+    # Performance 2 (script 3 calculates it exactly this way, so it isn't fitted)
+    Total_ingested_volume    = "T * A_mean * U_flow_ff_mean + T * Cov_A_Uflowff",
     A_vel_tmax               = "(pi * W_jaw / 2) * R_vel_tmax",
     Cov_A_Uflowff            = "(pi * W_jaw / 2) * Cov_R_Uflowff",
     Cov_R_Uflowff            = "Cov_R_Uflowefmeas + Cov_R_Uram",
@@ -656,7 +667,7 @@ library(lmerTest)
   # Parents of every variable in the path model
     # Identities are kept if their response is used by a path equation or by another kept identity
   buildStructure <- function(pathEqs, dataNames) {
-    usedVars <- unique(c(names(pathEqs), unlist(lapply(pathEqs, varsOf))))
+    usedVars <- unique(c(names(pathEqs), outcomes, unlist(lapply(pathEqs, varsOf))))   # outcomes kept even if they are identities
     activeIdentities <- character(0)
     repeat {
       newIds <- setdiff(intersect(names(identityEqs), usedVars), names(activeIdentities))
@@ -789,13 +800,29 @@ library(lmerTest)
       print(paste0(nCvFail, " of ", cvFolds, " cross-validation folds failed to fit (their fish have no prediction)"))
     }
 
+    # Outcomes that are identities (Total_ingested_volume) have no equation R^2 of their own: their fitted inputs are listed instead
+      # (the first fitted equations reached going up through the identities, with their R^2)
+    fittedInputs <- function(o) {
+      found <- character(0); todo <- o; seen <- character(0)
+      while(length(todo) > 0) {
+        v <- todo[1]; todo <- todo[-1]
+        if(v %in% seen) next
+        seen <- c(seen, v)
+        if(v %in% names(pathEqs) && v != o) { found <- c(found, v); next }
+        if(v %in% names(activeIdentities) || v == o) todo <- c(todo, nodeParents[[v]])
+      }
+      found
+    }
     r2Table <- do.call(rbind, lapply(outcomes, function(o) {
       wholeNow <- r2Of(d[[o]], predIn[[o]])
       cvNow    <- r2Of(d[[o]], cvPred[[o]])
-      data.frame(outcome = o, R2_local = eqSummary$R2_marginal[eqSummary$equation == o],
-                 R2_whole = wholeNow[["R2"]], n_whole = wholeNow[["n"]], R2_whole_cv = cvNow[["R2"]], n_cv = cvNow[["n"]])
+      localNow <- eqSummary$R2_marginal[eqSummary$equation == o]
+      inputsNow <- if(length(localNow) == 0) fittedInputs(o) else character(0)
+      data.frame(outcome = o, R2_local = if(length(localNow) == 0) NA_real_ else localNow,
+                 R2_whole = wholeNow[["R2"]], n_whole = wholeNow[["n"]], R2_whole_cv = cvNow[["R2"]], n_cv = cvNow[["n"]],
+                 fitted_inputs_R2 = paste(paste0(inputsNow, " ", round(eqSummary$R2_marginal[match(inputsNow, eqSummary$equation)], 3)), collapse = "; "))
     }))
-    print("Variance explained in each outcome:")
+    print("Variance explained in each outcome (R2_local NA = an identity; its fitted inputs and their R2 are listed):")
     print(r2Table, row.names = FALSE, digits = 3)
 
 
