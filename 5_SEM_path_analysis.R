@@ -56,18 +56,26 @@ library(lmerTest)
   # The models to fit and compare. One row per model:
     # timeBasis:   "tmax" or "tmaxVel"
     # widthModel:  buccal width model ("main", "noRetract", "noWidth"), must be in script 4's widthModels
-    # flowVersion: measured-flow version ("mouthFrontCorr", "mouthFront", "static", ...), must be in script 4's flowVersions
+    # flowVersion: measured-flow version ("staticRaw", "static", "mouthFrontCorr", ...), must be in script 4's flowVersions
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "mouthFrontCorr",
+  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = c("staticRaw", "static"),
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
+  # The uncorrected static flow with the node's distance from the mouth as a covariate (structure nodeDist, below)
+  variants <- rbind(variants, data.frame(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "staticRaw",
+                                         ktVersion = "dynamic", structure = "nodeDist"))
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
   # Alternative equation sets (different path structures), used by name in variants$structure
     # Each is a named character vector: name = response, value = new right-hand side (NA removes that equation)
+      # A value starting with "+" is added to the existing right-hand side instead of replacing it
     # e.g. structures$effortT <- c(T = "Effort_score") would make T a response of Effort (see the notes on T)
-  structures <- list(base = character(0))   ### CHANGE
+  structures <- list(base = character(0),
+                     # Distance of the static node from the mouth (multiples of R) in the instantaneous measured-flow equations,
+                       # so the uncorrected flow can be compared after allowing for where it was measured
+                     nodeDist = c(U_flow_ef_meas_tmax     = "+ static_node_zR_tmax",
+                                  U_flow_ef_meas_acc_tmax = "+ static_node_zR_tmax"))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   bootVariants <- NULL   ### CHANGE
@@ -239,7 +247,12 @@ library(lmerTest)
     eqs <- pathEqsBase
     changes <- structures[[structureNow]]
     for(nm in names(changes)) {
-      eqs[nm] <- changes[[nm]]
+      if(!is.na(changes[[nm]]) && grepl("^\\s*\\+", changes[[nm]])) {
+        if(!(nm %in% names(eqs))) stop("Structure '", structureNow, "' adds to ", nm, ", which has no equation")
+        eqs[nm] <- paste(eqs[[nm]], changes[[nm]])
+      } else {
+        eqs[nm] <- changes[[nm]]
+      }
     }
     eqs <- eqs[!is.na(eqs)]
     for(nm in names(ktCols)) {

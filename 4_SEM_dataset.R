@@ -53,11 +53,11 @@ rm(list=ls())
   # Buccal width models (V_buccal and U_flow_ff_predicted) and measured-flow versions (script 3) to save in the .rds
     # "" as a flow version = script 3's mainVersion (the unsuffixed columns)
   widthModels  <- c("main", "noRetract", "noWidth")           ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
-  flowVersions <- c("mouthFrontCorr", "mouthFront", "static")  ### CHANGE  any of "mouthFrontCorr", "mouthFront", "static", "staticRaw", ""
+  flowVersions <- c("staticRaw", "static", "mouthFrontCorr")   ### CHANGE  any of "staticRaw", "static", "mouthFrontCorr", "mouthFront", ""
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
   widthModel  <- "main"            ### CHANGE
-  flowVersion <- "mouthFrontCorr"  ### CHANGE
+  flowVersion <- "staticRaw"       ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
@@ -202,7 +202,8 @@ rm(list=ls())
                            setdiff(strikeVars, names(effortCols)), fishVars, flagVars),
                          names(kin))
   missingFlow <- setdiff(c(unlist(lapply(flowVersions, function(f) c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0)), f),
-                                                                     flowName(strikeVarsFlow, f)))), "Max_sub_pressure"),
+                                                                     flowName(strikeVarsFlow, f)))), "Max_sub_pressure",
+                           "static_node_zR_tmax", "static_node_zR_tmaxVel"),
                          names(flow))
   if(length(missingKin) > 0 || length(missingFlow) > 0) {
     stop("Columns not found. Kinematics: ", paste(missingKin, collapse = ", "), ". Flow: ", paste(missingFlow, collapse = ", "))
@@ -232,6 +233,10 @@ rm(list=ls())
 
     # Outcome 1 (Pa, negative = sub-ambient). Doesn't depend on the time basis
     out$Max_sub_pressure <- flow$Max_sub_pressure[flowRow]
+
+    # Distance of the static velocity node from the mouth at tmax (or tmaxVel), in multiples of the gape radius R
+      # (+ = in front of the mouth). The same in every flow version; a covariate for the uncorrected static flow in script 5
+    out$static_node_zR_tmax <- flow[[paste0("static_node_zR_", timeNow)]][flowRow]
 
     # SEM names for the per-strike variables
     names(out)[names(out) == "Ttotal"] <- "T"
