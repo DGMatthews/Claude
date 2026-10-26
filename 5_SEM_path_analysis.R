@@ -86,7 +86,8 @@ library(lmerTest)
                                   U_flow_ef_meas_acc_tmax = "+ static_node_zR_tmax"))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
-  bootVariants <- NULL   ### CHANGE
+  # bootVariants <- NULL   # all models (slow)
+  bootVariants <- c("tmaxVel_main_static+mouthFrontCorr_dynamic_base")   ### CHANGE  while the structure is still changing
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -111,7 +112,7 @@ library(lmerTest)
   refFrac <- 0.9
 
   # Bootstrap
-  nBoot  <- 200    ### CHANGE  1000+ for the final run (200 is for checking the script)
+  nBoot  <- 50     ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
 
@@ -184,11 +185,12 @@ library(lmerTest)
 
     # Effort drives the timing of the strike (#). T is also an Effort indicator, so its equation restates the measurement model
       # in the path model, so that Effort's effects through T reach the outcomes
+    # The other times are parts of the strike, so they also depend on its duration T
     T                = "Effort_score",
-    ttpg             = "Effort_score",
-    Time_hyoid       = "Effort_score",
-    Time_cranial     = "Effort_score",
-    tmax_from_Tstart = "Effort_score")
+    ttpg             = "T + Effort_score",
+    Time_hyoid       = "T + Effort_score",
+    Time_cranial     = "T + Effort_score",
+    tmax_from_Tstart = "T + Effort_score")
 
   # Check equations: how well the four-bar models predict the measured angles
     # Fitted and reported, but not part of the path model (nothing downstream uses them)
