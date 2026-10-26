@@ -72,6 +72,9 @@ library(lmerTest)
     # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
     # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
     # compareFlowDirect:  measured flow predicted directly from the predictors of buccal volume, without buccal volume (structure flowDirect)
+    # compareMullerK:     the same model with the flow corrected with script 3's second decay exponent (flow version
+      # "staticK+mouthFrontCorrK"; needs mullerExponentAlt set in script 3 and script 4 rerun). Different response data (the measured
+      # flow), so its own aic_group: compare by the cross-validated R^2 of pressure, and by how much static_node_zR still matters
     # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
       # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
@@ -80,6 +83,7 @@ library(lmerTest)
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
+  compareMullerK     <- FALSE   ### CHANGE
   comparePeak        <- TRUE    ### CHANGE
   compareBase <- data.frame(timeBasis = "tmax", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
@@ -88,6 +92,8 @@ library(lmerTest)
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
+  if(compareMullerK)     variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK"))
+  if(compareMullerK && compareDistance) variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK", structure = "noDist"))
   if(comparePeak)        variants <- rbind(variants, transform(compareBase, timeBasis = "peak"))
     # Other models can be added with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))

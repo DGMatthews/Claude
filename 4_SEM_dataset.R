@@ -69,7 +69,10 @@ rm(list=ls())
     # its retraction fit was poor (R^2 ~ 0), and in script 3 noWidth tracked the measured flow best within videos (shape and volume rate)
     # Add "main" (bar model) or "noRetract" back to compare them in script 5 (compareWidthModels)
   widthModels  <- c("noWidth")   ### CHANGE  any of "noWidth", "main", "noRetract"
-  flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr")   ### CHANGE
+  flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr",
+                    "staticK+mouthFrontCorrK")   ### CHANGE
+    # "staticK+mouthFrontCorrK": the same as the default, corrected with script 3's second decay exponent (mullerExponentAlt)
+      # Only made when script 3 was run with mullerExponentAlt set; otherwise skipped with a message
 
   # Time bases. "tmax" (peak pressure) and "tmaxVel" (peak velocity): every variable at the same instant
     # "peak": every variable at its own maximum over the strike (needs script 2's _peak columns and script 3's _Max columns)
@@ -266,6 +269,13 @@ rm(list=ls())
   }
   if(!(widthModel %in% widthModels) || !(flowVersion %in% flowVersions)) {
     stop("widthModel and flowVersion must be in widthModels and flowVersions")
+  }
+  # Flow versions made only with some script 3 settings (the K versions): skipped when script 3 didn't make them
+  optionalFlow <- grepl("K(\\+|$)", flowVersions)
+  notMade <- optionalFlow & !sapply(flowVersions, function(f) all(paste0("U_flow_ef_meas_tmax_", flowParts(f)) %in% names(flow)))
+  if(any(notMade)) {
+    print(paste0("Flow versions skipped (not in script 3's output; set mullerExponentAlt there): ", paste(flowVersions[notMade], collapse = ", ")))
+    flowVersions <- flowVersions[!notMade]
   }
   missingKin  <- setdiff(c(as.vector(outer(timeVarsKin, c("_tmax", "_tmaxVel"), paste0)),
                            unlist(lapply(widthModels, function(w) c(as.vector(outer(timeVarsBuccal, c("_tmax", "_tmaxVel"), function(a, b) paste0(a, b, widthSuffixOf(w)))),

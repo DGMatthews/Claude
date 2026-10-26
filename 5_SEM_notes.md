@@ -88,3 +88,19 @@ Each maximum has the same predictors as the variable at tmax, and takes the plac
 - **Exogenous inputs:** `Mandible_Max` and `Maxilla_tip_disp_Max` (from script 2's `Maxilla_tip_disp_peak`).
 - **Built in script 4:** `R_Max` comes from `A_Max` (the spline peak where there is no `W_jaw`). Script 4 also calculates `Neurocranium_tip_disp_Max`.
 - **Peak time basis:** the `_tmax` columns are the maxima, so the Max equations and arrows are dropped there. Every `_Max` name is replaced by its `_tmax` column (`maxToTmax`).
+
+## Testing the Muller decay exponent
+
+The flow correction is U_mouth = U_node × (1 + (z/R)²)^k, with Muller's k = 1.5.
+
+1. Run script 3. The check "Muller exponent k estimated within videos" regresses log(node velocity / kinematic prediction) on log(1 + z²) within each video.
+   - The prediction is the no-width buccal volume, in the earth frame.
+   - Each video's scale is removed, so the estimate doesn't use differences between videos.
+2. If `k_within` (ownLag) is clearly different from 1.5, set `mullerExponentAlt` to it in script 3 and rerun script 3. That adds the versions `staticK` and `mouthFrontCorrK`.
+3. Rerun script 4. It adds the flow version `staticK+mouthFrontCorrK`, and skips it when script 3 didn't make it.
+4. In script 5, set `compareMullerK <- TRUE`, with `compareDistance <- TRUE` for the same model without the distance covariates.
+5. Compare the cross-validated pressure R², and check whether `static_node_zR_tmax` still matters.
+   - If k was the problem, distance should matter much less with the new exponent.
+   - If distance still matters as much, the blur / node-placement explanation is more likely.
+
+The pressure correction g(s) is unchanged: it comes from Muller's potential, so it has no free exponent.
