@@ -61,8 +61,9 @@ library(lmerTest)
                      # corrected mouth-front flow for the strike means and ingested volume (see script 4)
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  # Chosen model: tmaxVel (best cross-validated R^2 of pressure) and static KT (lower AIC than dynamic at both time bases)
-  variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
+  # Chosen model: tmaxVel (best cross-validated R^2 of pressure), static KT (lower AIC than dynamic at both time bases),
+    # and flow corrected with the decay exponent estimated in script 3 (k = 0.61, flow version "staticK+mouthFrontCorrK")
+  variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
                           ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   ### CHANGE
   # variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
   #                         ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   # the earlier comparison
@@ -86,9 +87,9 @@ library(lmerTest)
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
-  compareMullerK     <- TRUE    ### CHANGE
+  compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePeak        <- FALSE   ### CHANGE
-  compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
+  compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
   if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("main", "noRetract")))
@@ -132,7 +133,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmaxVel_noWidth_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
+  bootVariants <- c("tmaxVel_noWidth_staticK+mouthFrontCorrK_static_base")   ### CHANGE
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -186,7 +187,7 @@ library(lmerTest)
 
   # Bootstrap
     # 0 = no bootstrap (no confidence intervals; everything else is the same)
-  nBoot  <- 200    ### CHANGE  1000+ for the final run (50 while the structure is still changing)
+  nBoot  <- 1000   ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
 
@@ -199,7 +200,7 @@ library(lmerTest)
   nCores <- max(1, parallel::detectCores() - 1)   ### CHANGE  1 = no parallel
   # Models that get the d-separation test (Fisher's C and the list of missing paths). NULL = all, character(0) = none
     # (labels as in variants$label, e.g. "tmaxVel_noWidth_static+mouthFrontCorr_static_base")
-  dsepVariants <- c("tmaxVel_noWidth_static+mouthFrontCorr_static_base", "tmaxVel_noWidth_staticK+mouthFrontCorrK_static_base")   ### CHANGE
+  dsepVariants <- NULL   ### CHANGE
 
   # The two performance outcomes. Effects on these are reported
   outcomes <- c("Max_sub_pressure", "Total_ingested_volume")

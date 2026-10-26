@@ -82,7 +82,7 @@ rm(list=ls())
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
   widthModel  <- "noWidth"         ### CHANGE
-  flowVersion <- "static+mouthFrontCorr"   ### CHANGE
+  flowVersion <- "staticK+mouthFrontCorrK"   ### CHANGE  (k = 0.61; needs mullerExponentAlt set in script 3)
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
