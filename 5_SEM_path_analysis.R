@@ -55,19 +55,20 @@ library(lmerTest)
 
   # The models to fit and compare. One row per model:
     # timeBasis:   "tmax" or "tmaxVel"
-    # widthModel:  buccal width model ("main", "noRetract", "noWidth"), must be in script 4's widthModels
+    # widthModel:  buccal width model. "noWidth" (no lateral expansion) is the only one script 4 saves by default; "main" / "noRetract"
+                     # need adding to script 4's widthModels first
     # flowVersion: measured-flow version, must be in script 4's flowVersions. "static+mouthFrontCorr" = corrected static node at tmax / tmaxVel,
                      # corrected mouth-front flow for the strike means and ingested volume (see script 4)
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+mouthFrontCorr",
+  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
 
   # Optional comparisons (each adds models to variants). All but compareStaticRaw are variations of one model (compareBase)
     # and change only predictors, so they are in that model's aic_group and compared by AIC
     # compareStaticRaw:   the same models with the uncorrected static flow (staticRaw) throughout
     # compareDistance:    without the node-distance covariates (structure noDist), to see how much they add
-    # compareWidthModels: with the other buccal width models (noRetract, noWidth)
+    # compareWidthModels: with the other buccal width models (main, noRetract); add both to script 4's widthModels first
     # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
     # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
     # compareFlowDirect:  measured flow predicted directly from the predictors of buccal volume, without buccal volume (structure flowDirect)
@@ -80,15 +81,15 @@ library(lmerTest)
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   comparePeak        <- TRUE    ### CHANGE
-  compareBase <- data.frame(timeBasis = "tmax", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
+  compareBase <- data.frame(timeBasis = "tmax", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
-  if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
+  if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("main", "noRetract")))
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
   if(comparePeak)        variants <- rbind(variants, transform(compareBase, timeBasis = "peak"))
-    # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
+    # Other models can be added with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
   # Alternative equation sets (different path structures), used by name in variants$structure

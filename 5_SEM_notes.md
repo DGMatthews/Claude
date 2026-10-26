@@ -60,3 +60,10 @@ Suggested order:
 ## Run time
 
 The bootstrap refits everything (lavaan plus 21 mixed models) for every resample. Use `nBoot = 200` to check the script, and 1000+ for the final run, which will be slow (tens of minutes per time basis).
+
+## Buccal width model
+
+Only `noWidth` (no lateral expansion of the buccal cavity) is used: it is the default in scripts 4 and 5, and the only width model script 4 saves.
+- Script 2: the bar model's expansion reached ~1.5 × W_head, and its retraction fit was poor (R² ≈ 0).
+- Script 3: within videos, noWidth tracked the measured flow best (shape and volume rate). noRetract predicted about half the measured volume rate.
+- Scripts 2 and 3 still calculate all three models as diagnostics. To compare them in the SEM, add `"main"` / `"noRetract"` to script 4's `widthModels` and set `compareWidthModels <- TRUE` in script 5.

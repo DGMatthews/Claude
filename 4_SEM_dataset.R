@@ -65,7 +65,10 @@ rm(list=ls())
         # predicted from buccal volume)
         # The corrected static node only covers part of each strike (frames within maxZoverR of the mouth), so its own strike means
         # exist for few videos. The uncorrected node (staticRaw) is ~1.4R from the mouth, so its fish-frame means are mostly negative
-  widthModels  <- c("main", "noRetract", "noWidth")   ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
+  # Buccal width models. Only noWidth (no lateral expansion) is kept: in script 2 the bar model's expansion reached ~1.5 x W_head and
+    # its retraction fit was poor (R^2 ~ 0), and in script 3 noWidth tracked the measured flow best within videos (shape and volume rate)
+    # Add "main" (bar model) or "noRetract" back to compare them in script 5 (compareWidthModels)
+  widthModels  <- c("noWidth")   ### CHANGE  any of "noWidth", "main", "noRetract"
   flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr")   ### CHANGE
 
   # Time bases. "tmax" (peak pressure) and "tmaxVel" (peak velocity): every variable at the same instant
@@ -75,7 +78,7 @@ rm(list=ls())
   timeBases <- c("tmax", "tmaxVel", "peak")   ### CHANGE
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
-  widthModel  <- "main"            ### CHANGE
+  widthModel  <- "noWidth"         ### CHANGE
   flowVersion <- "static+mouthFrontCorr"   ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
