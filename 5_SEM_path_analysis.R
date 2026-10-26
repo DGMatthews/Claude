@@ -59,11 +59,18 @@ library(lmerTest)
     # flowVersion: measured-flow version ("staticRaw", "static", "mouthFrontCorr", ...), must be in script 4's flowVersions
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = c("staticRaw", "static"),
+  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
-  # The uncorrected static flow with the node's distance from the mouth as a covariate (structure nodeDist, below)
-  variants <- rbind(variants, data.frame(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "staticRaw",
-                                         ktVersion = "dynamic", structure = "nodeDist"))
+
+  # Compare with the uncorrected static flow: the same models with staticRaw, plus staticRaw with the node's distance
+    # from the mouth as a covariate (structure nodeDist, below)
+  compareStaticRaw <- FALSE   ### CHANGE  TRUE adds these models
+  if(compareStaticRaw) {
+    variants <- rbind(variants,
+                      transform(variants, flowVersion = "staticRaw"),
+                      data.frame(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "staticRaw",
+                                 ktVersion = "dynamic", structure = "nodeDist"))
+  }
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 

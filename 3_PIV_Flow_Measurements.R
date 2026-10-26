@@ -69,8 +69,8 @@ rm(list=ls())
   outFlowSkip   <- file.path(pathData, 'flowSkipped.csv')
 
   # Which velocity version is saved under the SEM names (no suffix)
-  mainVersion <- "staticRaw"   ### CHANGE  "staticRaw", "static", "mouthFrontCorr" or "mouthFront"
-    # staticRaw: the hand-checked fixed-node trace. The corrected version (static) is also saved and compared in script 5
+  mainVersion <- "static"   ### CHANGE  "static", "staticRaw", "mouthFrontCorr" or "mouthFront"
+    # static: the hand-checked fixed-node trace, corrected to the aperture. The uncorrected version (staticRaw) is also saved
 
   # Muller correction of the static node: only frames where the node is within these distances of the mouth (multiples of the gape radius R)
   maxZoverR       <- 1.5   ### CHANGE  along the strike axis. The correction factor is 2.8 at z = R, 5.9 at 1.5R, 11 at 2R

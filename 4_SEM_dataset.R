@@ -53,11 +53,11 @@ rm(list=ls())
   # Buccal width models (V_buccal and U_flow_ff_predicted) and measured-flow versions (script 3) to save in the .rds
     # "" as a flow version = script 3's mainVersion (the unsuffixed columns)
   widthModels  <- c("main", "noRetract", "noWidth")           ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
-  flowVersions <- c("staticRaw", "static", "mouthFrontCorr")   ### CHANGE  any of "staticRaw", "static", "mouthFrontCorr", "mouthFront", ""
+  flowVersions <- c("static", "staticRaw", "mouthFrontCorr")   ### CHANGE  any of "staticRaw", "static", "mouthFrontCorr", "mouthFront", ""
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
   widthModel  <- "main"            ### CHANGE
-  flowVersion <- "staticRaw"       ### CHANGE
+  flowVersion <- "static"          ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
