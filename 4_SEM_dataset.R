@@ -155,6 +155,17 @@ rm(list=ls())
     }
   }
 
+  # Fasting_time must be a number. Cells that aren't (text, typos) become NA, and are listed so they can be fixed in the data sheet
+  fastRaw <- trimws(as.character(kin$Fasting_time))
+  kin$Fasting_time <- suppressWarnings(as.numeric(fastRaw))
+  badFast <- !is.na(fastRaw) & fastRaw != "" & is.na(kin$Fasting_time)
+  if(any(badFast)) {
+    badCounts <- table(fastRaw[badFast])
+    print(paste0(sum(badFast), " videos have a ", effortCols[["Fasting_time"]], " value that isn't a number (set to NA): ",
+                 paste(paste0("'", names(badCounts), "' = ", badCounts), collapse = ", ")))
+    print(head(kin$vidName[badFast], 10))
+  }
+
   # Videos whose prey column flags a PIV problem (pivFlagValues): pressure and flow are removed in buildDataset
   flagCount <- table(tolower(trimws(as.character(kin$Prey_num)))[tolower(trimws(as.character(kin$Prey_num))) %in% tolower(trimws(pivFlagValues))])
   if(length(flagCount) > 0) {
