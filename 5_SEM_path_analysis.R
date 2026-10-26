@@ -806,6 +806,18 @@ library(lmerTest)
              envir = globalenv())
     print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
 
+    ##### Peak time basis: variables at "tmax" that are calculated from others (identities) are recalculated from the peaks
+      # e.g. U_flow_ff = peak measured flow + peak ram, Mandible_depression from the peak mandible angle, the four-bar angles and KT
+      # In the order they are listed, so an identity's inputs are done first
+    if(variants$timeBasis[vNow] == "peak") {
+      for(v in names(d)[sapply(d, function(x) is.logical(x) && all(is.na(x)))]) d[[v]] <- NA_real_   # empty columns from script 4
+      for(v in names(identityEqs)[grepl("_tmax$", names(identityEqs))]) {
+        if(all(varsOf(identityEqs[[v]]) %in% names(d))) {
+          d[[v]] <- eval(parse(text = identityEqs[[v]])[[1]], d, globalenv())
+        }
+      }
+    }
+
     # Every variable in the equations must be numeric (Prey_num is the one ordered factor)
     varsUsedNow <- setdiff(unique(c(names(nodeParents), unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators)), c("Effort_score", "Effort_strike", "Behavior_fish"))
     notNumeric <- varsUsedNow[!sapply(varsUsedNow, function(v) is.numeric(d[[v]]) || (v == "Prey_num" && is.ordered(d[[v]])))]
@@ -814,17 +826,6 @@ library(lmerTest)
            paste(paste0(notNumeric, " (", sapply(notNumeric, function(v) class(d[[v]])[1]), ")"), collapse = ", "))
     }
 
-
-    ##### Peak time basis: variables at "tmax" that are calculated from others (identities) are recalculated from the peaks
-      # e.g. U_flow_ff = peak measured flow + peak ram, Mandible_depression from the peak mandible angle, the four-bar angles and KT
-      # In the order they are listed, so an identity's inputs are done first
-    if(variants$timeBasis[vNow] == "peak") {
-      for(v in names(identityEqs)[grepl("_tmax$", names(identityEqs))]) {
-        if(all(varsOf(identityEqs[[v]]) %in% names(d))) {
-          d[[v]] <- eval(parse(text = identityEqs[[v]])[[1]], d, globalenv())
-        }
-      }
-    }
 
     ##### Identity check: each identity recalculated from the data, compared with the column
       # Large differences mean the upstream scripts don't calculate the variable the way the equation says
