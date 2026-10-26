@@ -429,6 +429,13 @@ rm(list=ls())
     }
     coverage <- sapply(semEquations, function(v) sum(complete.cases(d[, v])))
     print(data.frame(rows_with_all_variables = coverage))
+    ### CHECK: a 0 above is expected when an equation uses a column that is all NA here. Those are identities
+    # (or, for the peak basis, columns with no peak in script 2) that script 5 recalculates from their parents.
+    allNA <- unique(unlist(semEquations))
+    allNA <- allNA[allNA %in% names(d) & sapply(allNA, function(v) v %in% names(d) && all(is.na(d[[v]])))]
+    if(length(allNA) > 0) {
+      print(paste0("All NA here (recalculated in script 5 if an identity): ", paste(allNA, collapse = ", ")))
+    }
 
     # Ranges, to catch unit problems (e.g. flow still in m/s, pressure positive)
     print(summary(d[, c("Max_sub_pressure", "U_flow_ef_meas_tmax", "U_flow_ff_tmax", "U_ram_tmax", "R_tmax", "A_tmax",
