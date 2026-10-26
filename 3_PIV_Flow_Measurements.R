@@ -254,6 +254,18 @@ rm(list=ls())
     flowData[[colNow]] <- NA_real_
   }
 
+  # Within-video comparison of predicted and measured flow (fish frame), for each velocity version and buccal width model
+    # predicted = V_buccal'(t) / A(t) from the kinematics (U_flow_ff_predicted*_t), measured = U_flow_ef_meas(t) + U_ram(t)
+    # shapeCor: correlation over the strike frames (does the predicted flow rise and fall with the measured flow?)
+    # shapeLag / shapeLagCor: the shift (frames, + = measured later) between -maxShapeLag and +maxShapeLag with the highest correlation
+    # shapeRatio: median predicted / median measured (size; 1 = right on average)
+  maxShapeLag   <- 10   # frames (20 ms at 500 fps)
+  widthSuffixes <- c(main = "", noRetract = "_noRetract", noWidth = "_noWidth")
+  shapeMetrics  <- c("shapeCor", "shapeLag", "shapeLagCor", "shapeRatio")
+  for(colNow in as.vector(outer(outer(shapeMetrics, names(widthSuffixes), paste, sep = "_"), versions, paste, sep = "_"))) {
+    flowData[[colNow]] <- NA_real_
+  }
+
   # Time series: one row per video, one column per kinematic frame
   longestVid <- max(kin$nFrames, na.rm = TRUE)
   tsNames <- c("Pressure_t", "Muller_factor_t", "Muller_factor_front_t", paste0("U_flow_ef_meas_", versions, "_t"))
@@ -501,6 +513,32 @@ rm(list=ls())
         if(length(strikeK) > 0) {
           uS <- smU$y[strikeK]
           resNow["U_flow_strike_frac"] <- mean(!is.na(uS))
+
+          # Within-video shape comparison with the predicted flow (fish frame), for each width model
+          measFF <- uS + U_ram_t[strikeK]
+          for(wNm in names(widthSuffixes)) {
+            predName <- paste0("U_flow_ff_predicted", widthSuffixes[[wNm]], "_t")
+            if(!(predName %in% names(kinTS))) next
+            predNow <- kinTS[[predName]][1, strikeK, vidNow]
+            okNow <- is.finite(predNow) & is.finite(measFF)
+            if(sum(okNow) < 10) next
+            colEnd <- paste0("_", wNm, "_", verNow)
+            flowData[[paste0("shapeCor", colEnd)]][i]   <- cor(predNow[okNow], measFF[okNow])
+            flowData[[paste0("shapeRatio", colEnd)]][i] <- median(predNow[okNow]) / median(measFF[okNow])
+            # Shifted correlations: measured frame k + lag against predicted frame k
+            lagCors <- sapply(-maxShapeLag:maxShapeLag, function(lagNow) {
+              kMeas <- strikeK + lagNow
+              inNow <- kMeas >= 1 & kMeas <= nNow
+              mNow  <- rep(NA_real_, length(strikeK))
+              mNow[inNow] <- smU$y[kMeas[inNow]] + U_ram_t[kMeas[inNow]]
+              okLag <- is.finite(predNow) & is.finite(mNow)
+              if(sum(okLag) < 10) NA_real_ else cor(predNow[okLag], mNow[okLag])
+            })
+            if(any(is.finite(lagCors))) {
+              flowData[[paste0("shapeLag", colEnd)]][i]    <- (-maxShapeLag:maxShapeLag)[which.max(lagCors)]
+              flowData[[paste0("shapeLagCor", colEnd)]][i] <- max(lagCors, na.rm = TRUE)
+            }
+          }
           if(any(!is.na(uS))) {
             resNow["U_flow_ef_meas_Max"] <- max(uS, na.rm = TRUE)
           }
@@ -610,6 +648,22 @@ rm(list=ls())
     print(paste0("--- measured flow: ", v))
     print(rbind(cor   = sapply(predNames, function(p) cor(kin[[p]], measNow, use = "pairwise.complete.obs")),
                 ratio = sapply(predNames, function(p) median(kin[[p]] / measNow, na.rm = TRUE))))
+  }
+
+  # Within-video shape: does the predicted flow (buccal volume) follow the measured flow through each strike?
+    # Medians across videos, for each velocity version and width model. cor > 0.5 = the share of videos with a clear match
+    # A best lag far from 0 means the peaks are offset in time (PIV vs. kinematics alignment, or the volume model's timing)
+  for(v in versions) {
+    print(paste0("--- within-video predicted vs. measured flow (fish frame): ", v))
+    print(sapply(names(widthSuffixes), function(wNm) {
+      colEnd <- paste0("_", wNm, "_", v)
+      c(n_videos   = sum(!is.na(flowData[[paste0("shapeCor", colEnd)]])),
+        median_cor = median(flowData[[paste0("shapeCor", colEnd)]], na.rm = TRUE),
+        share_cor_over_0.5 = mean(flowData[[paste0("shapeCor", colEnd)]] > 0.5, na.rm = TRUE),
+        median_best_lag = median(flowData[[paste0("shapeLag", colEnd)]], na.rm = TRUE),
+        median_best_lag_cor = median(flowData[[paste0("shapeLagCor", colEnd)]], na.rm = TRUE),
+        median_ratio = median(flowData[[paste0("shapeRatio", colEnd)]], na.rm = TRUE))
+    }), digits = 3)
   }
 
   # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;

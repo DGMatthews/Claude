@@ -70,17 +70,20 @@ library(lmerTest)
     # compareWidthModels: with the other buccal width models (noRetract, noWidth)
     # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
     # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
+    # compareFlowDirect:  measured flow predicted directly from the predictors of buccal volume, without buccal volume (structure flowDirect)
   compareStaticRaw   <- FALSE   ### CHANGE
   compareDistance    <- FALSE   ### CHANGE
   compareWidthModels <- FALSE   ### CHANGE
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
+  compareFlowDirect  <- FALSE   ### CHANGE
   compareBase <- data.frame(timeBasis = "tmax", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
   if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
+  if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
@@ -104,7 +107,14 @@ library(lmerTest)
                        # the measured earth-frame flow = fish-frame flow - ram, so ram is part of what explains the measured flow
                      flowRam = c(U_flow_ef_meas_tmax     = "+ U_ram_tmax",
                                  U_flow_ef_meas_acc_tmax = "+ U_ram_acc_tmax",
-                                 U_flow_ef_meas_mean     = "+ U_ram_mean"))   ### CHANGE
+                                 U_flow_ef_meas_mean     = "+ U_ram_mean"),
+                     # Measured flow from the head-component velocities and gape directly (what buccal volume is built from),
+                       # in place of the buccal-volume terms. Timing and node distance stay
+                     flowDirect = c(U_flow_ef_meas_tmax     = paste("Relative_tmax * Kinetic_Synchronization + static_node_zR_tmax",
+                                                                    "+ Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax + A_tmax"),
+                                    U_flow_ef_meas_acc_tmax = paste("Relative_tmax * Kinetic_Synchronization + static_node_zR_tmax",
+                                                                    "+ Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax + A_tmax + A_vel_tmax"),
+                                    U_flow_ef_meas_mean     = "Kinetic_Synchronization + Hyoid_Max + Protrusion_Max + A_Max + A_mean + ttpg"))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
@@ -186,7 +196,7 @@ library(lmerTest)
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
-    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length)",
+    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_tmax",
 
     # Measured flow (#)
       # + distance of the static velocity node from the mouth: what the aperture correction leaves
@@ -200,6 +210,8 @@ library(lmerTest)
     V_buccal_acc_tmax = "Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax",
     # Big-gape mean of the predicted flow V_buccal'(t) / A(t) (documents): volume gained up to peak gape over gape area and time
     U_flow_ff_predicted_mean_bigGape = "I(V_buccal_Max / (A_mean * ttpg))",   ### CHECK
+    # Largest buccal volume (#): from the strike's largest hyoid depression, protrusion and gape area
+    V_buccal_Max = "Hyoid_Max + Protrusion_Max + A_Max",
 
     # Mandible rotation (#)
     Mandible_angular_vel_tmax = "Neurocranium_angular_vel_tmax * {OpercularKT} * IOP_ligament_CSA + Hyoid_vel_tmax * I(Protractor_hyoideus_CSA / Mandible_length)",
@@ -207,7 +219,7 @@ library(lmerTest)
     # Hyoid (#)
     Hyoid_vel_tmax          = "Hypaxial_CSA * Effort_score * Sternohyoideus_CSA + Urohyal_length",
     Hyoid_depression_tmax   = "Relative_tmax * Hyoid_ROM",
-    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM",
+    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_depression_tmax",
 
     # Neurocranium (#). Docs: Epaxial_CSA * Effort / Neurocranium_MA, written as a product with 1/MA
     Neurocranium_linear_vel_tmax = "Epaxial_CSA * Effort_score * I(1 / Neurocranium_MA)",   ### CHECK
