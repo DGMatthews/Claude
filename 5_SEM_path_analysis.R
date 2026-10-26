@@ -94,6 +94,9 @@ library(lmerTest)
   # Random effect for the per-strike models (ignored with one row per fish)
   randomTerm <- "(1 | Fish_ID)"   ### CHECK  e.g. "(1 | Family/Fish_ID)" to add family
 
+  # Optimizer for the mixed models. bobyqa converges more reliably than lme4's default on models like these
+  lmerCtrl <- lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5))   ### CHANGE
+
   # Density of water (kg/m^3), for the pressure equation
   rho <- 1000
 
@@ -292,15 +295,35 @@ library(lmerTest)
     varsNow <- c(response, varsOf(rhsNow), "Fish_ID")
     dNow <- d[complete.cases(d[, varsNow, drop = FALSE]), , drop = FALSE]
     if(multiPerFish) {
-      lmer(as.formula(paste(response, "~", rhsNow, "+", randomTerm)), data = dNow, REML = REML)
+      lmer(as.formula(paste(response, "~", rhsNow, "+", randomTerm)), data = dNow, REML = REML, control = lmerCtrl)
     } else {
       lm(as.formula(paste(response, "~", rhsNow)), data = dNow)
     }
   }
 
   # Prediction from the fixed effects only (the "average fish")
+    # Mixed models: the fixed-effect model matrix is built here and only the columns lmer kept are used,
+      # so a column lmer dropped (rank deficient, e.g. a Prey_num level with no rows in that equation) doesn't break predict()
   predFixed <- function(m, newdata) {
-    if(inherits(m, "merMod")) predict(m, newdata = newdata, re.form = NA) else predict(m, newdata = newdata)
+    if(!inherits(m, "merMod")) {
+      return(suppressWarnings(predict(m, newdata = newdata)))   # lm handles dropped (aliased) columns itself
+    }
+    ttNow  <- delete.response(terms(m, fixed.only = TRUE))
+    mfOld  <- model.frame(m)
+    xlevNow <- lapply(mfOld[sapply(mfOld, is.factor)], levels)
+    for(fNow in names(xlevNow)) {
+      newLev <- setdiff(unique(na.omit(as.character(newdata[[fNow]]))), xlevNow[[fNow]])
+      if(length(newLev) > 0) stop("Prediction at ", fNow, " = ", paste(newLev, collapse = ", "), ", a level with no rows in this equation")
+    }
+    mfNow  <- model.frame(ttNow, newdata, na.action = na.pass, xlev = xlevNow)
+    XNow   <- model.matrix(ttNow, mfNow)
+    bNow   <- fixef(m)
+    drop(XNow[, names(bNow), drop = FALSE] %*% bNow)
+  }
+
+  # Columns lmer dropped because they were collinear in that equation's rows (NULL if none)
+  droppedCols <- function(m) {
+    if(inherits(m, "merMod")) names(attr(getME(m, "X"), "col.dropped")) else names(which(is.na(coef(m))))
   }
 
   # Coefficient table: estimate, SE, p for each fixed-effect term
@@ -337,7 +360,8 @@ library(lmerTest)
   # Reference value for the linearization
   refValue <- function(x) {
     if(is.factor(x)) {
-      return(factor(levels(x)[ceiling(nlevels(x) / 2)], levels = levels(x), ordered = is.ordered(x)))
+      presentNow <- levels(droplevels(x))   # middle of the levels that have rows
+      return(factor(presentNow[ceiling(length(presentNow) / 2)], levels = levels(x), ordered = is.ordered(x)))
     }
     x <- x[is.finite(x)]
     if(length(x) == 0) return(NA_real_)
@@ -345,13 +369,16 @@ library(lmerTest)
   }
 
   # Derivative of fun (a function of a one-row data frame) with respect to column x, at refRow
-    # Numeric columns: central difference. Ordered factor (Prey_num): mean change per step, (top level - bottom level) / (levels - 1)
-  derivAt <- function(fun, refRow, x, scaleNow) {
+    # Numeric columns: central difference. Ordered factor (Prey_num): mean change per step between the lowest and highest
+      # levels the model saw (levsAvail), (top - bottom) / (number of steps between them in the full order)
+  derivAt <- function(fun, refRow, x, scaleNow, levsAvail = NULL) {
     if(is.factor(refRow[[x]])) {
       levs <- levels(refRow[[x]])
-      lo <- refRow; lo[[x]] <- factor(levs[1], levels = levs, ordered = TRUE)
-      hi <- refRow; hi[[x]] <- factor(levs[length(levs)], levels = levs, ordered = TRUE)
-      return((fun(hi) - fun(lo)) / (length(levs) - 1))
+      useNow <- if(is.null(levsAvail)) levs else intersect(levs, levsAvail)
+      if(length(useNow) < 2) return(NA_real_)
+      lo <- refRow; lo[[x]] <- factor(useNow[1], levels = levs, ordered = TRUE)
+      hi <- refRow; hi[[x]] <- factor(useNow[length(useNow)], levels = levs, ordered = TRUE)
+      return((fun(hi) - fun(lo)) / (match(useNow[length(useNow)], levs) - match(useNow[1], levs)))
     }
     h <- 1e-4 * (if(is.finite(scaleNow) && scaleNow > 0) scaleNow else 1)
     up <- refRow; up[[x]] <- up[[x]] + h
@@ -396,6 +423,9 @@ library(lmerTest)
     fits <- list()
     for(y in names(pathEqs)) {
       fits[[y]] <- tryCatch(fitEq(y, pathEqs[[y]], d), error = function(e) stop("Equation ", y, " failed: ", conditionMessage(e)))
+      if(length(droppedCols(fits[[y]])) > 0) {
+        message("Equation ", y, ": dropped collinear columns ", paste(droppedCols(fits[[y]]), collapse = ", "))
+      }
     }
     list(d = d, effort = effortNow, fits = fits)
   }
@@ -454,7 +484,8 @@ library(lmerTest)
         local({ ex <- parse(text = activeIdentities[[y]])[[1]]; function(nd) eval(ex, nd, globalenv()) })
       }
       for(x in nodeParents[[y]]) {
-        B[y, x] <- derivAt(funNow, refRow, x, sdOf(d[[x]]))
+        levsAvail <- if(y %in% names(pathEqs) && is.factor(d[[x]])) levels(model.frame(fits[[y]])[[x]]) else NULL
+        B[y, x] <- derivAt(funNow, refRow, x, sdOf(d[[x]]), levsAvail)
       }
     }
     badB <- which(!is.finite(B), arr.ind = TRUE)
