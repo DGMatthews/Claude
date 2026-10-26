@@ -126,3 +126,13 @@ The pressure correction p_mouth = p_node / g(s) uses Muller's g(s) = 1 − s/√
 Within videos, the kinematic flow prediction tracks the measured flow almost perfectly (~0.95). Across videos it barely correlates, even on the peak basis, where each variable is taken at its own maximum and the lag drops out (flow R² 0.08). So what's missing is each video's scale, not its timing. The PIV pressure is calculated from the same PIV velocity field, so measured flow and pressure share that scale.
 - **`compareFlowKinematic` (structure `flowKinematic`):** builds the pressure equation from the kinematic flow (V_buccal_vel / A) instead of the measured flow. Only predictors change, so it's in the same AIC group as the base model.
 - **`flowLatentCheck`:** prints correlations between the kinematic prediction and the two PIV flows, overall, between fish and within fish. It also fits a latent Flow with the three as indicators. Needs script 4's `mouthFrontCorrK` flow version.
+
+## PIV scale factor (laser-sheet centring)
+
+Your explanation: if the laser sheet misses the centre plane of the suction, that video's whole PIV field is smaller. Measured flow and pressure then share a per-video scale the kinematics can't predict.
+- **Script 3, `PIV_scale_<version>`:** each video's measured / kinematic flow, fitted through the origin over the strike at that video's best lag.
+- **Script 3, `PIV_scale_pressure`:** the same from the pressure trace, measured against the unsteady pressure predicted from the kinematics.
+- **The test of the explanation:** the flow and pressure estimates should correlate across videos. Script 3 prints their correlations, and their correlations with node distance.
+- **Script 4, `PIV_scale`:** the mouth-front estimate (`pivScaleVersion`), relative to its 90th percentile (`pivScaleRefQuantile`). Well-centred videos are about 1.
+- **Script 5, `comparePivCentered`:** divides the measured flow at tmax and the pressure by `PIV_scale`, then recalculates the fish-frame flow (ram is unchanged). It runs this for the base and `flowKinematic` structures.
+- **Caveat:** the scale is measured against the kinematic flow. So in the centred models, kinematics → flow is an assumption backed by the within-video agreement, not a result. The steps on either side are still tested.

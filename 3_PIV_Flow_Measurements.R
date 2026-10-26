@@ -308,6 +308,15 @@ rm(list=ls())
     flowData[[colNow]] <- NA_real_
   }
 
+  # PIV scale factor of each video: how large the measured flow is relative to the flow predicted from the kinematics
+    # (no-width buccal volume), through the origin over the strike frames at the video's best lag (predicted flow at least
+    # kFitMinPredFrac of its maximum). If the laser sheet misses the centre plane of the suction, the whole video's PIV field
+    # is scaled down, so the shape still matches (high within-video correlation) but the size doesn't (no between-video correlation)
+    # PIV_scale_<version>: from each velocity version's flow. PIV_scale_pressure: the same from the pressure trace (pressure-peak
+    # node against the unsteady pressure predicted from the kinematics), a separate estimate from the same PIV field
+    # If the scale is a property of the video (sheet position), the estimates from flow and from pressure agree across videos
+  for(colNow in c(paste0("PIV_scale_", versions), "PIV_scale_pressure")) flowData[[colNow]] <- NA_real_
+
   # Time series: one row per video, one column per kinematic frame
   longestVid <- max(kin$nFrames, na.rm = TRUE)
   tsNames <- c("Pressure_t", "Muller_factor_t", "Muller_factor_front_t", paste0("U_flow_ef_meas_", versions, "_t"))
@@ -567,6 +576,15 @@ rm(list=ls())
           })
           lagOwnP <- if(any(is.finite(lagCorsP))) (-maxShapeLag:maxShapeLag)[which.max(lagCorsP)] else NA
           bigP <- is.finite(pPredS) & pPredS < 0 & pPredS <= kFitMinPredFrac * min(pPredS, na.rm = TRUE)
+          # PIV scale factor from the pressure: measured / predicted, through the origin, at the best lag (suction frames)
+          if(!is.na(lagOwnP)) {
+            kMeas <- strikeK + lagOwnP
+            inNow <- kMeas >= 1 & kMeas <= nNow
+            pNodeS <- rep(NA_real_, length(strikeK))
+            pNodeS[inNow] <- smP$y[kMeas[inNow]]
+            okS <- bigP & is.finite(pNodeS)
+            if(sum(okS) >= 10) flowData$PIV_scale_pressure[i] <- sum(pPredS[okS] * pNodeS[okS]) / sum(pPredS[okS]^2)
+          }
           for(lagType in c("lag0", "ownLag")) {
             lagNow <- if(lagType == "lag0") 0 else lagOwnP
             if(is.na(lagNow)) next
@@ -653,6 +671,19 @@ rm(list=ls())
               if(any(is.finite(lagCors[, kind]))) {
                 flowData[[paste0(kind, "Lag", colEnd)]][i]    <- lagNows[which.max(lagCors[, kind])]
                 flowData[[paste0(kind, "LagCor", colEnd)]][i] <- max(lagCors[, kind], na.rm = TRUE)
+              }
+            }
+
+            # PIV scale factor (no-width prediction): measured / predicted fish-frame flow, through the origin, at this video's best lag
+            if(wNm == "noWidth") {
+              lagS <- flowData[[paste0("shapeLag", colEnd)]][i]
+              if(!is.na(lagS)) {
+                kMeas <- strikeK + lagS
+                inNow <- kMeas >= 1 & kMeas <= nNow
+                measS <- rep(NA_real_, length(strikeK))
+                measS[inNow] <- smU$y[kMeas[inNow]] + U_ram_t[kMeas[inNow]]
+                okS <- is.finite(predNow) & is.finite(measS) & predNow >= kFitMinPredFrac * max(predNow, na.rm = TRUE)
+                if(sum(okS) >= 10) flowData[[paste0("PIV_scale_", verNow)]][i] <- sum(predNow[okS] * measS[okS]) / sum(predNow[okS]^2)
               }
             }
 
@@ -901,6 +932,20 @@ rm(list=ls())
   } else {
     print("--- Pressure decay check: no videos with enough frames")
   }
+
+  # PIV scale factors (measured / kinematic prediction, per video; see PIV_scale above)
+    # Sheet-position explanation: the estimates from different nodes and from the pressure correlate across videos (same video, same scale)
+    # The distance columns show how much of the scale goes with how far the measurement nodes were from the mouth
+  scaleCols <- c(paste0("PIV_scale_", versions), "PIV_scale_pressure")
+  print("--- PIV scale factor per video (measured / predicted from the kinematics; 1 = the size the kinematics predict)")
+  print(summary(flowData[scaleCols]))
+  logScales <- as.data.frame(lapply(flowData[scaleCols], function(v) ifelse(is.finite(v) & v > 0, log(v), NA)))
+  logScales$pressure_node_zR <- flowData$pressure_node_zR
+  logScales$static_node_zR_tmaxVel <- flowData$static_node_zR_tmaxVel
+  print("Correlations of log(scale) between estimates, and with the node distances (pairwise videos):")
+  print(round(cor(logScales, use = "pairwise.complete.obs"), 2))
+  print("Videos with each pair:")
+  print(crossprod(!is.na(as.matrix(logScales))))
 
   # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;
     # above 1 when frames are missing, since the decomposition uses the full duration T)

@@ -97,6 +97,12 @@ rm(list=ls())
     # was behind the mouth or beyond maxZoverR), or "raw" = the PIV peak at its own node. The raw value is always kept as Max_sub_pressure_raw
   pressureVersion <- "corrected"   ### CHANGE  "corrected" or "raw"
 
+  # PIV scale factor of each video (script 3's PIV_scale_<version>: measured / kinematic flow), for script 5's "centered" versions
+    # Relative to well-centred videos: divided by its pivScaleRefQuantile quantile across videos, so a video at that quantile is 1
+    # and videos where the laser sheet missed the centre of the suction (smaller PIV field) are below 1
+  pivScaleVersion     <- "mouthFrontCorrK"   ### CHANGE  the flow version it comes from (mouth front: ~98% of strike frames)
+  pivScaleRefQuantile <- 0.9                 ### CHANGE
+
   # Effort inputs from the feeding data sheet: name in this dataset = column in the data sheet
     # Satiation isn't in the data sheet: it's the strike number for the fish (XX in ..._EXX of the video name), set below
   effortCols <- c(Prey_num     = "Prey.number",         ### CHECK
@@ -341,6 +347,10 @@ rm(list=ls())
     out$Max_sub_pressure     <- if(pressureVersion == "corrected") flow$Max_sub_pressure_corr[flowRow] else out$Max_sub_pressure_raw
     # The peak corrected with script 3's second decay (pressureDecayAlt), for script 5's comparePressureK (NA if script 3 didn't make it)
     out$Max_sub_pressure_K   <- colOr(flow, "Max_sub_pressure_corrK", flowRow)
+    # PIV scale factor (NA if script 3 didn't make it, or not positive)
+    scaleNow <- colOr(flow, paste0("PIV_scale_", pivScaleVersion))
+    scaleNow[!(scaleNow > 0) %in% TRUE] <- NA
+    out$PIV_scale <- (scaleNow / quantile(scaleNow, pivScaleRefQuantile, na.rm = TRUE))[flowRow]
 
     # Distance of the static velocity node from the mouth at tmax (or tmaxVel), in multiples of the gape radius R
       # (+ = in front of the mouth). The same in every flow version; a covariate for the uncorrected static flow in script 5
@@ -365,7 +375,7 @@ rm(list=ls())
 
     # PIV problem flagged in the prey column: no pressure or flow for this video, and no prey count
     out$PIV_flagged <- preyNow %in% flagsNow
-    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "Max_sub_pressure_raw", "Max_sub_pressure_K", "static_node_zR_tmax", "pressure_node_zR")
+    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "Max_sub_pressure_raw", "Max_sub_pressure_K", "PIV_scale", "static_node_zR_tmax", "pressure_node_zR")
     out[out$PIV_flagged, pivCols] <- NA
     preyNow[out$PIV_flagged] <- NA
     out$Prey_num <- factor(preyNow, levels = levelsNow, ordered = TRUE)

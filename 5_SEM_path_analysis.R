@@ -83,6 +83,12 @@ library(lmerTest)
     # comparePressureK:   the same model with pressure corrected by script 3's second decay (Max_sub_pressure_K, pressureDecayAlt),
       # and without the distance covariates if compareDistance. Different outcome data, so its own aic_group and cv_group:
       # the question is whether pressure_node_zR still matters (base vs. noDist) once the pressure correction matches the flow's decay
+    # comparePivCentered: PIV flow and pressure divided by each video's PIV scale factor (script 3/4's PIV_scale: measured / kinematic
+      # flow, relative to well-centred videos), for the base and flowKinematic structures (pressure version "centered")
+      # Idea: when the laser sheet misses the centre plane of the suction, the whole PIV field of that video is smaller, so measured
+      # flow and pressure share a per-video scale the kinematics can't predict. Dividing it out removes that scale. Caveat: the scale
+      # is measured against the kinematic flow, so the centred flow follows the kinematic flow by construction (kinematics -> flow
+      # becomes an assumption backed by the within-video agreement, not a result); the steps around it are still tested
     # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
       # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
@@ -94,9 +100,11 @@ library(lmerTest)
   compareFlowKinematic <- TRUE  ### CHANGE
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePressureK   <- TRUE    ### CHANGE
+  comparePivCentered <- TRUE    ### CHANGE
   comparePeak        <- FALSE   ### CHANGE
   compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK", ktVersion = "static", structure = "base")   ### CHANGE
-  # Pressure version of each model: "corrected" (Max_sub_pressure from script 4) or "K" (Max_sub_pressure_K)
+  # Pressure version of each model: "corrected" (Max_sub_pressure from script 4), "K" (Max_sub_pressure_K),
+    # "centered" or "centeredK" (the same, with PIV flow and pressure divided by PIV_scale; see comparePivCentered)
   if(is.null(variants$pressure)) variants$pressure <- "corrected"
   compareBase$pressure <- "corrected"
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
@@ -110,6 +118,7 @@ library(lmerTest)
   if(compareMullerK && compareDistance) variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK", structure = "noDist"))
   if(comparePressureK)   variants <- rbind(variants, transform(compareBase, pressure = "K"))
   if(comparePressureK && compareDistance) variants <- rbind(variants, transform(compareBase, pressure = "K", structure = "noDist"))
+  if(comparePivCentered) variants <- rbind(variants, transform(compareBase[c(1, 1), ], pressure = "centered", structure = c("base", "flowKinematic")))
   if(comparePeak)        variants <- rbind(variants, transform(compareBase, timeBasis = "peak"))
     # Other models can be added with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste0(paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"),
@@ -914,11 +923,21 @@ library(lmerTest)
     timeModel <- Sys.time()
     d <- allDatasets[[variants$dataKey[vNow]]]
     # Pressure corrected with script 3's second decay (comparePressureK)
-    if(variants$pressure[vNow] == "K") {
+    if(variants$pressure[vNow] %in% c("K", "centeredK")) {
       if(!("Max_sub_pressure_K" %in% names(d)) || all(is.na(d$Max_sub_pressure_K))) {
         stop("No Max_sub_pressure_K in the dataset: set pressureDecayAlt in script 3, rerun scripts 3 and 4, or set comparePressureK <- FALSE")
       }
       d$Max_sub_pressure <- d$Max_sub_pressure_K
+    }
+    # PIV flow and pressure divided by the video's PIV scale factor (comparePivCentered). Ram isn't PIV, so the fish-frame flow is
+      # recalculated from the centred earth-frame flow. The strike means and ingested volume are left as measured
+    if(variants$pressure[vNow] %in% c("centered", "centeredK")) {
+      if(!("PIV_scale" %in% names(d)) || all(is.na(d$PIV_scale))) {
+        stop("No PIV_scale in the dataset: rerun scripts 3 and 4, or set comparePivCentered <- FALSE")
+      }
+      for(v in c("Max_sub_pressure", "U_flow_ef_meas_tmax", "U_flow_ef_meas_acc_tmax")) d[[v]] <- d[[v]] / d$PIV_scale
+      d$U_flow_ff_tmax     <- d$U_flow_ef_meas_tmax + d$U_ram_tmax
+      d$U_flow_ff_acc_tmax <- d$U_flow_ef_meas_acc_tmax + d$U_ram_acc_tmax
     }
 
     # This model's equations and path structure (used by the functions above)
