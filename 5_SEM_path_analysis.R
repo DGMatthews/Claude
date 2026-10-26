@@ -56,11 +56,11 @@ library(lmerTest)
   # The models to fit and compare. One row per model:
     # timeBasis:   "tmax" or "tmaxVel"
     # widthModel:  buccal width model ("main", "noRetract", "noWidth"), must be in script 4's widthModels
-    # flowVersion: measured-flow version, must be in script 4's flowVersions. "static+staticRaw" = corrected static node at tmax / tmaxVel,
-                     # uncorrected static node for the strike means and ingested volume (see script 4)
+    # flowVersion: measured-flow version, must be in script 4's flowVersions. "static+mouthFrontCorr" = corrected static node at tmax / tmaxVel,
+                     # corrected mouth-front flow for the strike means and ingested volume (see script 4)
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+staticRaw",
+  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+mouthFrontCorr",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
 
   # Compare with the uncorrected static flow throughout: the same models with staticRaw, plus staticRaw with the node's distance

@@ -60,15 +60,17 @@ rm(list=ls())
     # or two joined with "+": "instant+means"
       # instant: values at tmax / tmaxVel (flow and acceleration, earth and fish frame)
       # means:   strike means, covariances and total ingested volume
-      # e.g. "static+staticRaw": the aperture-corrected static node at tmax (where the correction matters for pressure),
-        # and the uncorrected static node for the strike means. The corrected node only covers part of each strike
-        # (frames within maxZoverR of the mouth), so its strike means exist for few videos and its ingested volume is extrapolated
+      # e.g. "static+mouthFrontCorr" (default): the aperture-corrected static node at tmax (where the correction matters for pressure),
+        # and the corrected mouth-front flow for the strike means (it covers ~95% of each strike, and its size matches the flow
+        # predicted from buccal volume)
+        # The corrected static node only covers part of each strike (frames within maxZoverR of the mouth), so its own strike means
+        # exist for few videos. The uncorrected node (staticRaw) is ~1.4R from the mouth, so its fish-frame means are mostly negative
   widthModels  <- c("main", "noRetract", "noWidth")   ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
-  flowVersions <- c("static+staticRaw", "static", "staticRaw", "static+mouthFrontCorr", "mouthFrontCorr")   ### CHANGE
+  flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr")   ### CHANGE
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
   widthModel  <- "main"            ### CHANGE
-  flowVersion <- "static+staticRaw"   ### CHANGE
+  flowVersion <- "static+mouthFrontCorr"   ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
