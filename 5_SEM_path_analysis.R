@@ -66,8 +66,13 @@ library(lmerTest)
   # Time comparison (with the k = 0.61 pressure and the pressure nodes kept in the whole search area): tmaxVel vs. peak, each with
     # the flow from buccal volume rate / gape area (base), as separate additive terms (flowAdditive), and pressure from the
     # kinematic flow (flowKinematic)
-  variants <- expand.grid(timeBasis = c("tmaxVel", "peak"), widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
-                          ktVersion = "static", structure = c("base", "flowAdditive", "flowVolume", "flowKinematic"), stringsAsFactors = FALSE)   ### CHANGE
+  # Final model: tmaxVel, flow from buccal volume rate and gape area as additive terms (flowAdditive): best cross-validated R^2 of
+    # pressure (0.189) and lowest AIC of the tmaxVel models in the time-basis comparison
+  variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
+                          ktVersion = "static", structure = "flowAdditive", stringsAsFactors = FALSE)   ### CHANGE
+  # The time-basis comparison:
+  # variants <- expand.grid(timeBasis = c("tmaxVel", "peak"), widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
+  #                         ktVersion = "static", structure = c("base", "flowAdditive", "flowVolume", "flowKinematic"), stringsAsFactors = FALSE)
   # variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
   #                         ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   # the single chosen model
   # variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
@@ -97,13 +102,13 @@ library(lmerTest)
     # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
       # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
-  compareDistance    <- TRUE    ### CHANGE
+  compareDistance    <- FALSE   ### CHANGE
   compareWidthModels <- FALSE   ### CHANGE
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   compareFlowKinematic <- FALSE ### CHANGE  (in variants above for now)
-  compareFlowAdditiveNoDist <- TRUE   ### CHANGE  flowAdditive without the node-distance covariates (tmaxVel)
+  compareFlowAdditiveNoDist <- FALSE  ### CHANGE  flowAdditive without the node-distance covariates (tmaxVel)
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePressureK   <- FALSE   ### CHANGE  (script 4's pressureVersion "correctedK" already makes it the main pressure; TRUE only adds a duplicate)
   comparePivCentered <- FALSE   ### CHANGE  (tried: centring made pressure unpredictable, cross-validated R^2 ~0)
@@ -189,7 +194,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmaxVel_noWidth_staticK+mouthFrontCorrK_static_base")   ### CHANGE
+  bootVariants <- c("tmaxVel_noWidth_staticK+mouthFrontCorrK_static_flowAdditive")   ### CHANGE
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -248,7 +253,7 @@ library(lmerTest)
 
   # Bootstrap
     # 0 = no bootstrap (no confidence intervals; everything else is the same)
-  nBoot  <- 200    ### CHANGE  1000+ for the final run (50 while the structure is still changing)
+  nBoot  <- 1000   ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
 
