@@ -93,8 +93,13 @@ rm(list=ls())
                               # doesn't jump when the maximum moves to another PIV node. Stronger = smoother correction through the strike
   spanRef           <- 73
 
-  # Strike means, covariances and total ingested volume need at least this fraction of Tstart-Tend frames with a velocity value
-  minStrikeFrac <- 0.8   ### CHANGE
+  # Which videos get strike means, covariances and total ingested volume (each uses the strike frames that have flow)
+    # "beforePeak": the minFramesBeforePeak frames up to and including tmaxVel all have flow, however much of the rest of the strike is missing
+      # (the static node loses frames once the fish passes it, and the static velocities were checked by hand)
+    # "fraction": at least minStrikeFrac of the Tstart-Tend frames have flow (also used for videos with no tmaxVel)
+  coverageRule        <- "beforePeak"   ### CHANGE  "beforePeak" or "fraction"
+  minFramesBeforePeak <- 15             ### CHANGE  frames (30 ms at 500 fps)
+  minStrikeFrac       <- 0.8            ### CHANGE  only used with coverageRule = "fraction"
 
   # Big-gape mean: frames with A >= uFlowAreaFrac * A_Max (same as the kinematics script)
   uFlowAreaFrac <- 0.5
@@ -485,7 +490,19 @@ rm(list=ls())
 
           # Means, covariances and volume: only with enough frames, and a real strike end
             # Each uses the frames where all its inputs exist. Covariances are (1/n) * sum of products of deviations, as in the kinematics script
-          if(!censored && mean(!is.na(uS)) >= minStrikeFrac) {
+            # coverageRule: the minFramesBeforePeak frames up to tmaxVel, or a fraction of the strike (see the settings)
+          if(!coverageRule %in% c("beforePeak", "fraction")) {
+            stop("coverageRule must be 'beforePeak' or 'fraction'")
+          }
+          kPeak <- round(tmaxVelNow * frameRate) + 1
+          coverageOK <- if(coverageRule == "fraction" || is.na(kPeak)) {   # no tmaxVel: fraction rule
+            mean(!is.na(uS)) >= minStrikeFrac
+          } else {
+            kPeak - minFramesBeforePeak + 1 >= 1 && kPeak <= nNow &&
+              all(!is.na(smU$y[(kPeak - minFramesBeforePeak + 1):kPeak]))
+          }
+
+          if(!censored && coverageOK) {
 
             uFF <- uS - U_ram_t[strikeK]
             rS  <- R_t[strikeK]
