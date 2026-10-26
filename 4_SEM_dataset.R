@@ -44,8 +44,13 @@ rm(list=ls())
 
   # Prey_num is an ordered categorical variable. Its levels, lowest to highest, as written in the data sheet
     # Matching ignores capitals and spaces at either end ("Few " = "few")
-    # The script stops if the sheet has a value that isn't in this list
-  preyLevels <- c("one", "few", "several", "many")   ### CHECK  spelling in the data sheet
+    # The script stops if the sheet has a value that is in neither list
+  preyLevels <- c("none", "one", "few", "several", "many")   ### CHECK  spelling in the data sheet
+
+  # Values in the prey column that flag a problem with the PIV (not a prey count)
+    # These videos keep their kinematics, but their pressure and flow are set to NA, and Prey_num is NA (not recorded)
+    # PIV_flagged = TRUE marks them
+  pivFlagValues <- c("bad", "dontusethis", "bubble", "tube")   ### CHANGE
 
   # Which epaxial cross-section is Epaxial_CSA
   epaxialSection <- "crest"    ### CHANGE  "crest" (highest point of the supraoccipital crest) or "flat" (where the neurocranium flattens out)
@@ -137,6 +142,13 @@ rm(list=ls())
       kin[[nm]] <- NA
       print(paste0("Data sheet has no column '", effortCols[[nm]], "': ", nm, " is NA"))
     }
+  }
+
+  # Videos whose prey column flags a PIV problem (pivFlagValues): pressure and flow are removed in buildDataset
+  flagCount <- table(tolower(trimws(as.character(kin$Prey_num)))[tolower(trimws(as.character(kin$Prey_num))) %in% tolower(trimws(pivFlagValues))])
+  if(length(flagCount) > 0) {
+    print(paste0(sum(flagCount), " videos with a PIV problem in the prey column (pressure and flow set to NA): ",
+                 paste(names(flagCount), flagCount, sep = " = ", collapse = ", ")))
   }
 
   # Satiation = strike number for the fish (E01 = 1, E02 = 2, ...), from the end of the video name
@@ -271,9 +283,16 @@ rm(list=ls())
     preyNow <- tolower(trimws(as.character(out$Prey_num)))
     preyNow[preyNow == ""] <- NA
     levelsNow <- tolower(trimws(preyLevels))
-    if(any(!(na.omit(preyNow) %in% levelsNow))) {
-      stop("Prey_num values not in preyLevels: ", paste(setdiff(unique(na.omit(preyNow)), levelsNow), collapse = ", "))
+    flagsNow  <- tolower(trimws(pivFlagValues))
+    if(any(!(na.omit(preyNow) %in% c(levelsNow, flagsNow)))) {
+      stop("Prey_num values not in preyLevels or pivFlagValues: ", paste(setdiff(unique(na.omit(preyNow)), c(levelsNow, flagsNow)), collapse = ", "))
     }
+
+    # PIV problem flagged in the prey column: no pressure or flow for this video, and no prey count
+    out$PIV_flagged <- preyNow %in% flagsNow
+    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "static_node_zR_tmax")
+    out[out$PIV_flagged, pivCols] <- NA
+    preyNow[out$PIV_flagged] <- NA
     out$Prey_num <- factor(preyNow, levels = levelsNow, ordered = TRUE)
 
     # One row per fish: the whole row of the fish's strike with the most negative Max_sub_pressure
