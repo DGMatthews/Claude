@@ -593,8 +593,12 @@ rm(list=ls())
                 ratio = sapply(predNames, function(p) median(kin[[p]] / measNow, na.rm = TRUE))))
   }
 
-  # Total ingested volume: decomposition vs. direct integral (should be close)
-  print(summary(flowData$Total_ingested_volume / flowData$Total_ingested_volume_direct))
+  # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;
+    # above 1 when frames are missing, since the decomposition uses the full duration T)
+  for(v in versions) {
+    print(paste0("--- ingested volume, decomposition / direct: ", v))
+    print(summary(flowData[[paste0("Total_ingested_volume_", v)]] / flowData[[paste0("Total_ingested_volume_direct_", v)]]))
+  }
 
 
 ##########
