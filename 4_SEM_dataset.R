@@ -65,7 +65,10 @@ rm(list=ls())
         # predicted from buccal volume)
         # The corrected static node only covers part of each strike (frames within maxZoverR of the mouth), so its own strike means
         # exist for few videos. The uncorrected node (staticRaw) is ~1.4R from the mouth, so its fish-frame means are mostly negative
-  widthModels  <- c("main", "noRetract", "noWidth")   ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
+  # Buccal width models. Only noWidth (no lateral expansion) is kept: in script 2 the bar model's expansion reached ~1.5 x W_head and
+    # its retraction fit was poor (R^2 ~ 0), and in script 3 noWidth tracked the measured flow best within videos (shape and volume rate)
+    # Add "main" (bar model) or "noRetract" back to compare them in script 5 (compareWidthModels)
+  widthModels  <- c("noWidth")   ### CHANGE  any of "noWidth", "main", "noRetract"
   flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr")   ### CHANGE
 
   # Time bases. "tmax" (peak pressure) and "tmaxVel" (peak velocity): every variable at the same instant
@@ -75,7 +78,7 @@ rm(list=ls())
   timeBases <- c("tmax", "tmaxVel", "peak")   ### CHANGE
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
-  widthModel  <- "main"            ### CHANGE
+  widthModel  <- "noWidth"         ### CHANGE
   flowVersion <- "static+mouthFrontCorr"   ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
@@ -234,7 +237,8 @@ rm(list=ls())
   # One value per strike (no time)
   strikeVars <- c("Ttotal", "Ttpg", "Relative_ttpg", "Kinetic_Synchronization", "Time_hyoid", "Time_cranial",
                   "R_t_mean", "A_mean", "A_Max", "Protrusion_t_mean", "Mandible_depression_t_mean", "Hyoid_depression_t_mean",
-                  "Hyoid_Max", "Protrusion_Max",   # strike maxima, for the V_buccal_Max equation in script 5
+                  "Hyoid_Max", "Protrusion_Max",   # strike maxima, for the Max equations in script 5 (+ R_Max, Maxilla_tip_disp_Max below)
+                  "Mandible_Max", "Mandible_depression_Max", "Neurocranium_Max",
                   "U_ram_mean", "Cov_R_Uram",
                   "Hyoid_vel_mean", "Neurocranium_linear_vel_mean", "Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean",
                   "Prey_num", "Fasting_time", "Satiation")
@@ -307,6 +311,10 @@ rm(list=ls())
 
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
+    # Strike maxima script 2 doesn't save under a _Max name
+      # R_Max: from A_Max (= pi W_jaw / 2 x the largest gape), so the A_Max identity in script 5 holds exactly; the spline peak without W_jaw
+    out$R_Max <- ifelse(!is.na(kin$A_Max) & !is.na(kin$W_jaw), kin$A_Max / (pi * kin$W_jaw / 2), colOr(kin, "R_peak"))
+    out$Maxilla_tip_disp_Max <- colOr(kin, "Maxilla_tip_disp_peak")
     for(v in strikeVarsBuccal) out[[v]] <- kin[[paste0(v, widthSuffix)]]
 
     # Buccal volume shrinking at tmaxVel: no buccal-volume values for this video (dropNegBuccalVel)
@@ -314,6 +322,7 @@ rm(list=ls())
     out[out$buccal_excluded, c(paste0(timeVarsBuccal, "_tmax"), strikeVarsBuccal)] <- NA
     for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowParts(flowNow)[["means"]])]][flowRow]
     for(v in fishVars)         out[[v]] <- kin[[v]]
+    out$Neurocranium_tip_disp_Max <- out$Neurocranium_Max * out$Neurocranium_length   # as Neurocranium_tip_disp_tmax (identity in script 5)
     for(v in flagVars)         out[[v]] <- kin[[v]]
 
     # Outcome 1 (Pa, negative = sub-ambient). Doesn't depend on the time basis
@@ -429,6 +438,13 @@ rm(list=ls())
     }
     coverage <- sapply(semEquations, function(v) sum(complete.cases(d[, v])))
     print(data.frame(rows_with_all_variables = coverage))
+    ### CHECK: a 0 above is expected when an equation uses a column that is all NA here. Those are identities
+    # (or, for the peak basis, columns with no peak in script 2) that script 5 recalculates from their parents.
+    allNA <- unique(unlist(semEquations))
+    allNA <- allNA[allNA %in% names(d) & sapply(allNA, function(v) v %in% names(d) && all(is.na(d[[v]])))]
+    if(length(allNA) > 0) {
+      print(paste0("All NA here (recalculated in script 5 if an identity): ", paste(allNA, collapse = ", ")))
+    }
 
     # Ranges, to catch unit problems (e.g. flow still in m/s, pressure positive)
     print(summary(d[, c("Max_sub_pressure", "U_flow_ef_meas_tmax", "U_flow_ff_tmax", "U_ram_tmax", "R_tmax", "A_tmax",

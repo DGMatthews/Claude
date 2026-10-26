@@ -55,19 +55,20 @@ library(lmerTest)
 
   # The models to fit and compare. One row per model:
     # timeBasis:   "tmax" or "tmaxVel"
-    # widthModel:  buccal width model ("main", "noRetract", "noWidth"), must be in script 4's widthModels
+    # widthModel:  buccal width model. "noWidth" (no lateral expansion) is the only one script 4 saves by default; "main" / "noRetract"
+                     # need adding to script 4's widthModels first
     # flowVersion: measured-flow version, must be in script 4's flowVersions. "static+mouthFrontCorr" = corrected static node at tmax / tmaxVel,
                      # corrected mouth-front flow for the strike means and ingested volume (see script 4)
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+mouthFrontCorr",
+  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
 
   # Optional comparisons (each adds models to variants). All but compareStaticRaw are variations of one model (compareBase)
     # and change only predictors, so they are in that model's aic_group and compared by AIC
     # compareStaticRaw:   the same models with the uncorrected static flow (staticRaw) throughout
     # compareDistance:    without the node-distance covariates (structure noDist), to see how much they add
-    # compareWidthModels: with the other buccal width models (noRetract, noWidth)
+    # compareWidthModels: with the other buccal width models (main, noRetract); add both to script 4's widthModels first
     # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
     # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
     # compareFlowDirect:  measured flow predicted directly from the predictors of buccal volume, without buccal volume (structure flowDirect)
@@ -80,15 +81,15 @@ library(lmerTest)
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   comparePeak        <- TRUE    ### CHANGE
-  compareBase <- data.frame(timeBasis = "tmax", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
+  compareBase <- data.frame(timeBasis = "tmax", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
-  if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
+  if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("main", "noRetract")))
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
   if(comparePeak)        variants <- rbind(variants, transform(compareBase, timeBasis = "peak"))
-    # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
+    # Other models can be added with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
   # Alternative equation sets (different path structures), used by name in variants$structure
@@ -122,7 +123,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmax_main_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
+  bootVariants <- c("tmax_noWidth_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -143,9 +144,29 @@ library(lmerTest)
     # Behavior_fish: each fish's mean Effort score over its strikes = how hard that fish consistently strikes (its striking style).
       # It also carries anything else consistent about the fish that the model doesn't include (e.g. genetics, unmeasured morphology)
     # Effort_strike: each strike's Effort score minus its fish's mean = strike-to-strike effort
-    # Both feed every equation Effort feeds. Prey_num, Satiation and Fasting_time predict Effort_strike; Behavior_fish is exogenous
+    # Both feed every equation Effort feeds. Behavior_fish is exogenous; so is Effort_strike unless effortCovariates
     # FALSE = one Effort_score, as before
   splitEffort <- TRUE   ### CHANGE
+
+  # Prey_num, Satiation and Fasting_time as predictors of Effort (the Effort_score equation below)
+    # FALSE (default): left out. They explained ~2% of strike-to-strike effort (R^2 0.02), so Effort is exogenous
+    # (its strike part comes straight from the measurement model)
+  effortCovariates <- FALSE   ### CHANGE
+
+  # Strike maxima (_Max: each variable's largest value over the strike)
+    # Each has the same predictors as the variable at tmax (the Max equations and identities below), and takes the place of the
+    # tmax value as the predictor of the strike means (e.g. Hyoid_depression_t_mean ~ ... + Hyoid_Max)
+    # maxArrows: the maximum is also a predictor of the value at tmax (the d-separation test flagged these). character(0) = none
+  maxArrows <- c(R_tmax                     = "R_Max",
+                 Protrusion_tmax            = "Protrusion_Max",
+                 Hyoid_depression_tmax      = "Hyoid_Max",
+                 Neurocranium_rotation_tmax = "Neurocranium_Max")   ### CHANGE
+    # On the peak time basis the _tmax columns ARE the strike maxima, so the Max equations and maxArrows are left out and every
+    # _Max name in the other equations is replaced by its _tmax column (maxToTmax)
+  maxToTmax <- c(R_Max = "R_tmax", A_Max = "A_tmax", Protrusion_Max = "Protrusion_tmax", Hyoid_Max = "Hyoid_depression_tmax",
+                 Mandible_Max = "Mandible_ang_tmax", Mandible_depression_Max = "Mandible_depression_tmax",
+                 Neurocranium_Max = "Neurocranium_rotation_tmax", Neurocranium_tip_disp_Max = "Neurocranium_tip_disp_tmax",
+                 Maxilla_tip_disp_Max = "Maxilla_tip_disp_tmax")
 
   # Reference values for the linearization (docs: "90% of max to avoid edge fitting problems")
     # "fracMax": refFrac x the value with the largest magnitude (keeps the sign, so pressure uses 90% of the most negative)
@@ -191,16 +212,18 @@ library(lmerTest)
     # Gape (#)
     R_tmax     = "Protrusion_tmax + Mandible_depression_tmax",
     R_vel_tmax = "Protrusion_vel_tmax + Mandible_dep_vel_tmax",
-    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_tmax",   # mean gape also depends on the peak gape
+    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_Max",   # mean gape also depends on the largest gape
+    R_Max      = "Protrusion_Max + Mandible_depression_Max",                 # largest gape: as R_tmax, from the components' maxima
 
     # Protrusion (#)
     Protrusion_tmax     = "Neurocranium_tip_disp_tmax + Maxilla_tip_disp_tmax",
     Protrusion_vel_tmax = "Neurocranium_linear_vel_tmax + Maxilla_linear_vel_tmax",
-    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_tmax",   # mean protrusion also depends on the peak
+    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_Max",   # mean protrusion also depends on the largest protrusion
+    Protrusion_Max      = "Neurocranium_tip_disp_Max + Maxilla_tip_disp_Max",
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
-    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_tmax",
+    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_Max",
 
     # Measured flow (#)
       # + distance of the static velocity node from the mouth: what the aperture correction leaves
@@ -223,18 +246,20 @@ library(lmerTest)
     # Hyoid (#)
     Hyoid_vel_tmax          = "Hypaxial_CSA * Effort_score * Sternohyoideus_CSA + Urohyal_length",
     Hyoid_depression_tmax   = "Relative_tmax * Hyoid_ROM",
-    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_depression_tmax",
+    Hyoid_Max               = "Relative_tmax * Hyoid_ROM",
+    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_Max",
 
     # Neurocranium (#). Docs: Epaxial_CSA * Effort / Neurocranium_MA, written as a product with 1/MA
     Neurocranium_linear_vel_tmax = "Epaxial_CSA * Effort_score * I(1 / Neurocranium_MA)",   ### CHECK
     Neurocranium_rotation_tmax   = "Relative_tmax * Neurocranium_ROM",
+    Neurocranium_Max             = "Relative_tmax * Neurocranium_ROM",
 
     # Maxilla (*): output angular velocity = input angular velocity x KT
     Maxilla_angular_vel_tmax = "I(Mandible_angular_vel_tmax * {OralKT})",
     # Linear velocity of the maxilla tip = angular velocity x maxilla length (*). Measured separately (tip landmark), so fitted
     Maxilla_linear_vel_tmax  = "I(Maxilla_length * Maxilla_angular_vel_tmax)",
 
-    # Effort (#), on the factor scores from step 1
+    # Effort (#), on the factor scores from step 1. Only used when effortCovariates
     Effort_score = "Prey_num + Satiation + Fasting_time",
 
     # Effort drives the timing of the strike (#). T is also an Effort indicator, so its equation restates the measurement model
@@ -266,6 +291,9 @@ library(lmerTest)
     U_flow_ff_mean           = "U_flow_ef_meas_mean + U_ram_mean",
     Mandible_dep_vel_tmax    = "Mandible_length * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
+    Mandible_depression_Max  = "Mandible_length * sin(Mandible_Max)",   # strike maxima, as at tmax
+    A_Max                    = "(pi * W_jaw / 2) * R_Max",
+    Neurocranium_tip_disp_Max = "Neurocranium_Max * Neurocranium_length",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
     A_tmax                   = "(pi * W_jaw / 2) * R_tmax",       # gape area, as script 2 calculates it
     # Performance 2 (script 3 calculates it exactly this way, so it isn't fitted)
@@ -324,12 +352,20 @@ library(lmerTest)
 
 ##### Equations for one model: KT columns filled in and the structure's changes applied
   pathEqsBase <- pathEqs
-  variantEquations <- function(ktNow, structureNow) {
+  variantEquations <- function(ktNow, structureNow, timeNow) {
     ktCols <- list(dynamic = c(OralKT = "Oral_KT_tmax", OpercularKT = "Opercular_KT_tmax"),
                    static  = c(OralKT = "Oral_4bar_KT", OpercularKT = "Opercular_4bar_KT"))[[ktNow]]
     if(is.null(ktCols)) stop("ktVersion must be 'dynamic' or 'static': ", ktNow)
     if(!(structureNow %in% names(structures))) stop("No structure called '", structureNow, "' in structures")
     eqs <- pathEqsBase
+    if(!effortCovariates) eqs <- eqs[names(eqs) != "Effort_score"]
+    # Strike maxima (maxArrows). Peak time basis: no Max equations or arrows (applied after the structure's changes, below)
+    if(timeNow != "peak") {
+      for(nm in names(maxArrows)) {
+        if(!(nm %in% names(eqs))) stop("maxArrows adds to ", nm, ", which has no equation")
+        eqs[nm] <- paste(eqs[[nm]], "+", maxArrows[[nm]])
+      }
+    }
     changes <- structures[[structureNow]]
     for(nm in names(changes)) {
       if(!is.na(changes[[nm]]) && grepl("^\\s*\\+", changes[[nm]])) {
@@ -344,6 +380,10 @@ library(lmerTest)
       }
     }
     eqs <- eqs[!is.na(eqs)]
+    if(timeNow == "peak") {
+      eqs <- eqs[!(names(eqs) %in% names(maxToTmax))]
+      for(nm in names(maxToTmax)) eqs <- gsub(paste0("\\b", nm, "\\b"), maxToTmax[[nm]], eqs, perl = TRUE)
+    }
     for(nm in names(ktCols)) {
       eqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], eqs, fixed = TRUE)
     }
@@ -802,7 +842,7 @@ library(lmerTest)
     d <- allDatasets[[variants$dataKey[vNow]]]
 
     # This model's equations and path structure (used by the functions above)
-    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
+    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow], variants$timeBasis[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
              envir = globalenv())
     print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
 

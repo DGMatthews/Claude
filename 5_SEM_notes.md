@@ -13,7 +13,9 @@ Every step that involves an SEM is in script 5. Script 4 (`4_SEM_dataset.R`) onl
 1. lavaan, measurement model only: `Effort =~ Neurocranium_Adj_vel_mean + Hyoid_Adj_vel_mean + T`, FIML (`missing = "ml"`), indicators standardized.
    - Just-identified with 3 indicators (df = 0): no fit test, so check the loadings.
 2. **Bartlett factor scores** (`lavPredict(..., method = "Bartlett")`) = `Effort_score`. They are unbiased for the factor, so slopes on Effort aren't attenuated (regression scores would be).
-3. `Effort_score ~ Prey_num + Satiation + Fasting_time` and Effort's arrows into `Hyoid_vel_tmax` and `Neurocranium_linear_vel_tmax` are ordinary path equations.
+3. Effort's arrows into `Hyoid_vel_tmax`, `Neurocranium_linear_vel_tmax` and the timing variables are ordinary path equations.
+   - Effort is split into `Behavior_fish` (the fish mean) and `Effort_strike`; both are exogenous.
+   - `Effort_score ~ Prey_num + Satiation + Fasting_time` is off by default (`effortCovariates`): these explained ~2% of strike effort.
 4. The bootstrap redoes step 1 in every resample, so the error in the scores is in the confidence intervals.
 
 ## Decisions in the draft to check
@@ -60,3 +62,29 @@ Suggested order:
 ## Run time
 
 The bootstrap refits everything (lavaan plus 21 mixed models) for every resample. Use `nBoot = 200` to check the script, and 1000+ for the final run, which will be slow (tens of minutes per time basis).
+
+## Buccal width model
+
+Only `noWidth` (no lateral expansion of the buccal cavity) is used: it is the default in scripts 4 and 5, and the only width model script 4 saves.
+- Script 2: the bar model's expansion reached ~1.5 × W_head, and its retraction fit was poor (R² ≈ 0).
+- Script 3: within videos, noWidth tracked the measured flow best (shape and volume rate). noRetract predicted about half the measured volume rate.
+- Scripts 2 and 3 still calculate all three models as diagnostics. To compare them in the SEM, add `"main"` / `"noRetract"` to script 4's `widthModels` and set `compareWidthModels <- TRUE` in script 5.
+
+## Strike maxima (`_Max`)
+
+Each maximum has the same predictors as the variable at tmax, and takes the place of the tmax value as the predictor of the strike mean.
+
+| Maximum | Equation (as at tmax) | Predicts |
+|---|---|---|
+| `R_Max` | `Protrusion_Max + Mandible_depression_Max` | `R_t_mean`, `R_tmax` |
+| `Protrusion_Max` | `Neurocranium_tip_disp_Max + Maxilla_tip_disp_Max` | `Protrusion_t_mean`, `Protrusion_tmax`, `V_buccal_Max` |
+| `Hyoid_Max` | `Relative_tmax * Hyoid_ROM` | `Hyoid_depression_t_mean`, `Hyoid_depression_tmax`, `V_buccal_Max` |
+| `Neurocranium_Max` | `Relative_tmax * Neurocranium_ROM` | `Neurocranium_rotation_tmax` |
+| `Mandible_depression_Max` | identity: `Mandible_length * sin(Mandible_Max)` | `Mandible_depression_t_mean`, `R_Max` |
+| `A_Max` | identity: `(pi * W_jaw / 2) * R_Max` | `V_buccal_Max` |
+| `Neurocranium_tip_disp_Max` | identity: `Neurocranium_Max * Neurocranium_length` | `Protrusion_Max` |
+
+- **Arrows into the tmax values:** the Max → tmax arrows are `maxArrows`; `character(0)` removes them.
+- **Exogenous inputs:** `Mandible_Max` and `Maxilla_tip_disp_Max` (from script 2's `Maxilla_tip_disp_peak`).
+- **Built in script 4:** `R_Max` comes from `A_Max` (the spline peak where there is no `W_jaw`). Script 4 also calculates `Neurocranium_tip_disp_Max`.
+- **Peak time basis:** the `_tmax` columns are the maxima, so the Max equations and arrows are dropped there. Every `_Max` name is replaced by its `_tmax` column (`maxToTmax`).
