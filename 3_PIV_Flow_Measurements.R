@@ -73,7 +73,7 @@ rm(list=ls())
     # static: the hand-checked fixed-node trace, corrected to the aperture. The uncorrected version (staticRaw) is also saved
 
   # Muller correction of the static node: only frames where the node is within these distances of the mouth (multiples of the gape radius R)
-  maxZoverR       <- 1.5   ### CHANGE  along the strike axis. The correction factor is 2.8 at z = R, 5.9 at 1.5R, 11 at 2R
+  maxZoverR       <- 2     ### CHANGE  along the strike axis. The correction factor is 2.8 at z = R, 5.9 at 1.5R, 11 at 2R (was 1.5)
   maxOffAxisOverR <- 1     ### CHANGE  sideways from the strike axis (Muller's model is for points on the axis)
 
   # Cleaning and smoothing, as in the kinematics script
