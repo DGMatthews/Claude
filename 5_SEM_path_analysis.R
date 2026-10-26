@@ -81,12 +81,12 @@ library(lmerTest)
     # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
       # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
-  compareDistance    <- FALSE   ### CHANGE
+  compareDistance    <- TRUE    ### CHANGE
   compareWidthModels <- FALSE   ### CHANGE
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
-  compareMullerK     <- FALSE   ### CHANGE
+  compareMullerK     <- TRUE    ### CHANGE
   comparePeak        <- FALSE   ### CHANGE
   compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
@@ -185,9 +185,21 @@ library(lmerTest)
   refFrac <- 0.9
 
   # Bootstrap
-  nBoot  <- 50     ### CHANGE  1000+ for the final run (50 while the structure is still changing)
+    # 0 = no bootstrap (no confidence intervals; everything else is the same)
+  nBoot  <- 200    ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
+
+  # Speed. Almost all the run time is refitting the mixed models:
+    # d-separation ~2 refits per claim (~1600 claims per model), cross-validation 1 refit of every equation per fold,
+    # bootstrap 1 refit of everything per sample
+  # nCores: CPU cores used at once for the d-separation claims, the cross-validation folds and the bootstrap. 1 = one at a time
+    # parallel::detectCores() in the console shows how many the computer has; leave one free. With more than 1 the bootstrap
+    # samples differ from a 1-core run (each core has its own random numbers), but they are reproducible for the same nCores
+  nCores <- max(1, parallel::detectCores() - 1)   ### CHANGE  1 = no parallel
+  # Models that get the d-separation test (Fisher's C and the list of missing paths). NULL = all, character(0) = none
+    # (labels as in variants$label, e.g. "tmaxVel_noWidth_static+mouthFrontCorr_static_base")
+  dsepVariants <- c("tmaxVel_noWidth_static+mouthFrontCorr_static_base", "tmaxVel_noWidth_staticK+mouthFrontCorrK_static_base")   ### CHANGE
 
   # The two performance outcomes. Effects on these are reported
   outcomes <- c("Max_sub_pressure", "Total_ingested_volume")
@@ -221,18 +233,18 @@ library(lmerTest)
     # Gape (#)
     R_tmax     = "Protrusion_tmax + Mandible_depression_tmax",
     R_vel_tmax = "Protrusion_vel_tmax + Mandible_dep_vel_tmax",
-    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_Max",   # mean gape also depends on the largest gape
+    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_Max + R_tmax",   # mean gape also depends on the largest gape and the gape at tmax
     R_Max      = "Protrusion_Max + Mandible_depression_Max",                 # largest gape: as R_tmax, from the components' maxima
 
     # Protrusion (#)
     Protrusion_tmax     = "Neurocranium_tip_disp_tmax + Maxilla_tip_disp_tmax",
     Protrusion_vel_tmax = "Neurocranium_linear_vel_tmax + Maxilla_linear_vel_tmax",
-    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_Max",   # mean protrusion also depends on the largest protrusion
+    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_Max + Protrusion_tmax",   # and on the largest protrusion and protrusion at tmax
     Protrusion_Max      = "Neurocranium_tip_disp_Max + Maxilla_tip_disp_Max",
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
-    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_Max",
+    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_Max + Mandible_depression_tmax",
 
     # Measured flow (#)
       # + distance of the static velocity node from the mouth: what the aperture correction leaves
@@ -246,8 +258,9 @@ library(lmerTest)
     V_buccal_acc_tmax = "Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax",
     # Big-gape mean of the predicted flow V_buccal'(t) / A(t) (documents): volume gained up to peak gape over gape area and time
     U_flow_ff_predicted_mean_bigGape = "I(V_buccal_Max / (A_mean * ttpg))",   ### CHECK
-    # Largest buccal volume (#): from the strike's largest hyoid depression, protrusion and gape area
-    V_buccal_Max = "Hyoid_Max + Protrusion_Max + A_Max",
+    # Largest buccal volume (#): from the strike's largest hyoid depression, protrusion and gape area, and the size of the head
+      # (the d-separation test flagged the head dimensions as missing)
+    V_buccal_Max = "Hyoid_Max + Protrusion_Max + A_Max + W_jaw + W_head + D_head + Neurocranium_length",
 
     # Mandible rotation (#)
     Mandible_angular_vel_tmax = "Neurocranium_angular_vel_tmax * {OpercularKT} * IOP_ligament_CSA + Hyoid_vel_tmax * I(Protractor_hyoideus_CSA / Mandible_length)",
@@ -256,7 +269,7 @@ library(lmerTest)
     Hyoid_vel_tmax          = "Hypaxial_CSA * Effort_score * Sternohyoideus_CSA + Urohyal_length",
     Hyoid_depression_tmax   = "Relative_tmax * Hyoid_ROM",
     Hyoid_Max               = "Relative_tmax * Hyoid_ROM",
-    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_Max",
+    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_Max + Hyoid_depression_tmax",
 
     # Neurocranium (#). Docs: Epaxial_CSA * Effort / Neurocranium_MA, written as a product with 1/MA
     Neurocranium_linear_vel_tmax = "Epaxial_CSA * Effort_score * I(1 / Neurocranium_MA)",   ### CHECK
@@ -711,7 +724,8 @@ library(lmerTest)
       FALSE
     }
 
-    claims <- data.frame()
+    # Claims to test (cheap): pairs with no arrow between them, response = a fitted equation
+    pairsNow <- list()
     for(a in seq_along(nodeOrder)) {
       for(b in seq_along(nodeOrder)) {
         if(b <= a) next
@@ -722,48 +736,51 @@ library(lmerTest)
         if(!(y %in% names(pathEqs))) {
           if(x %in% names(pathEqs)) { tmp <- x; x <- y; y <- tmp } else next
         }
-
-        condVars <- union(varsOf(pathEqs[[y]]), nodeParents[[x]])
-        rowNow <- data.frame(response = y, other = x, conditioning = paste(setdiff(condVars, x), collapse = ", "),
-                             n = NA_integer_, p = NA_real_, note = "", stringsAsFactors = FALSE)
-
-        if(determinedBy(x, setdiff(condVars, x))) {
-          rowNow$note <- "skipped: other variable is an identity of the conditioning variables"
-          claims <- rbind(claims, rowNow)
-          next
-        }
-
-        extraNow <- setdiff(nodeParents[[x]], c(varsOf(pathEqs[[y]]), x))
-        varsAll  <- unique(c(y, varsOf(pathEqs[[y]]), extraNow, x, "Fish_ID"))
-        dClaim <- d[complete.cases(d[, varsAll, drop = FALSE]), , drop = FALSE]
-        rowNow$n <- nrow(dClaim)
-        if(nrow(dClaim) < 10) {
-          rowNow$note <- "skipped: fewer than 10 rows"
-          claims <- rbind(claims, rowNow)
-          next
-        }
-
-        # Linear determination check (e.g. U_flow_ef_meas = U_flow_ff - U_ram when both are conditioned on)
-        if(is.numeric(dClaim[[x]])) {
-          mmNow <- model.matrix(as.formula(paste("~", paste(c(pathEqs[[y]], extraNow), collapse = " + "))), dClaim)
-          r2Now <- summary(lm(dClaim[[x]] ~ mmNow))$r.squared
-          if(is.finite(r2Now) && r2Now > 0.9999) {
-            rowNow$note <- "skipped: other variable is linearly determined by the conditioning variables"
-            claims <- rbind(claims, rowNow)
-            next
-          }
-        }
-
-        res <- tryCatch({
-          m0 <- suppressMessages(fitEq(y, pathEqs[[y]], dClaim, extraTerms = extraNow))
-          m1 <- suppressMessages(fitEq(y, pathEqs[[y]], dClaim, extraTerms = c(extraNow, x)))
-          a01 <- suppressMessages(anova(m0, m1))
-          a01[2, ncol(a01)]
-        }, error = function(e) { rowNow$note <<- paste("failed:", conditionMessage(e)); NA_real_ })
-        rowNow$p <- res
-        claims <- rbind(claims, rowNow)
+        pairsNow[[length(pairsNow) + 1]] <- c(x = x, y = y)
       }
     }
+
+    # Test of one claim (the slow part: two refits), run in parallel with nCores > 1
+    testClaim <- function(pairNow) {
+      x <- pairNow[["x"]]; y <- pairNow[["y"]]
+      condVars <- union(varsOf(pathEqs[[y]]), nodeParents[[x]])
+      rowNow <- data.frame(response = y, other = x, conditioning = paste(setdiff(condVars, x), collapse = ", "),
+                           n = NA_integer_, p = NA_real_, note = "", stringsAsFactors = FALSE)
+
+      if(determinedBy(x, setdiff(condVars, x))) {
+        rowNow$note <- "skipped: other variable is an identity of the conditioning variables"
+        return(rowNow)
+      }
+
+      extraNow <- setdiff(nodeParents[[x]], c(varsOf(pathEqs[[y]]), x))
+      varsAll  <- unique(c(y, varsOf(pathEqs[[y]]), extraNow, x, "Fish_ID"))
+      dClaim <- d[complete.cases(d[, varsAll, drop = FALSE]), , drop = FALSE]
+      rowNow$n <- nrow(dClaim)
+      if(nrow(dClaim) < 10) {
+        rowNow$note <- "skipped: fewer than 10 rows"
+        return(rowNow)
+      }
+
+      # Linear determination check (e.g. U_flow_ef_meas = U_flow_ff - U_ram when both are conditioned on)
+      if(is.numeric(dClaim[[x]])) {
+        mmNow <- model.matrix(as.formula(paste("~", paste(c(pathEqs[[y]], extraNow), collapse = " + "))), dClaim)
+        r2Now <- summary(lm(dClaim[[x]] ~ mmNow))$r.squared
+        if(is.finite(r2Now) && r2Now > 0.9999) {
+          rowNow$note <- "skipped: other variable is linearly determined by the conditioning variables"
+          return(rowNow)
+        }
+      }
+
+      res <- tryCatch({
+        m0 <- suppressMessages(fitEq(y, pathEqs[[y]], dClaim, extraTerms = extraNow))
+        m1 <- suppressMessages(fitEq(y, pathEqs[[y]], dClaim, extraTerms = c(extraNow, x)))
+        a01 <- suppressMessages(anova(m0, m1))
+        a01[2, ncol(a01)]
+      }, error = function(e) { rowNow$note <<- paste("failed:", conditionMessage(e)); NA_real_ })
+      rowNow$p <- res
+      rowNow
+    }
+    claims <- do.call(rbind, parMap(pairsNow, testClaim))
 
     tested <- claims[!is.na(claims$p), ]
     fisherC <- -2 * sum(log(pmax(tested$p, 1e-300)))
@@ -781,6 +798,9 @@ library(lmerTest)
   dir.create(outFolder, showWarnings = FALSE)
 
   variants$dataKey <- with(variants, paste(timeBasis, widthModel, flowVersion, sep = "|"))
+  # Bootstrapped models last, so the quick models are finished (and saved) even if the bootstrap runs out of time
+  variants <- variants[order(is.null(bootVariants) | variants$label %in% bootVariants), , drop = FALSE]
+  print(paste0("Models, in the order they run: ", paste(variants$label, collapse = ", ")))
   if(any(!(variants$dataKey %in% names(allDatasets)))) {
     stop("Datasets not in ", basename(datasetFile), ": ", paste(setdiff(variants$dataKey, names(allDatasets)), collapse = ", "),
          ". Available: ", paste(names(allDatasets), collapse = ", "), " (add the width model / flow version to script 4's lists)")
@@ -800,6 +820,19 @@ library(lmerTest)
   # Cross-validation folds: each fish is in the same fold for every model, so the models are predicted on the same splits
   allFish <- sort(unique(unlist(lapply(allDatasets, function(x) x$Fish_ID))))
   foldOf  <- setNames(sample(rep(seq_len(cvFolds), length.out = length(allFish))), allFish)
+
+  # Parallel workers (nCores > 1): separate R sessions with the same packages. Before each parallel step they get a copy of
+    # everything in the workspace (the current model's equations, data and functions), except the saved results
+  if(nCores > 1) {
+    cl <- parallel::makeCluster(nCores)
+    invisible(parallel::clusterEvalQ(cl, { library(lavaan); library(lme4); library(lmerTest); NULL }))
+    parallel::clusterSetRNGStream(cl, 1)
+  }
+  parMap <- function(X, FUN) {
+    if(nCores <= 1 || length(X) < 2) return(lapply(X, FUN))
+    parallel::clusterExport(cl, setdiff(ls(globalenv()), c("results", "allDatasets", "cl")), envir = globalenv())
+    parallel::parLapply(cl, X, FUN)
+  }
 
 
 #######################################
@@ -849,6 +882,7 @@ library(lmerTest)
     lab <- variants$label[vNow]
     print("")
     print(paste0("################ Model: ", lab, " ################"))
+    timeModel <- Sys.time()
     d <- allDatasets[[variants$dataKey[vNow]]]
 
     # This model's equations and path structure (used by the functions above)
@@ -893,7 +927,9 @@ library(lmerTest)
 
 
     ##### Main fit (steps 1, 2, 4, 5)
-    main <- runModel(d, doDsep = TRUE)
+    doDsepNow <- is.null(dsepVariants) || lab %in% dsepVariants
+    main <- runModel(d, doDsep = doDsepNow)
+    print(paste0("Main fit", if(doDsepNow) " and d-separation" else "", ": ", round(difftime(Sys.time(), timeModel, units = "mins"), 1), " min"))
 
     print("Effort measurement model (standardized loadings):")
     print(main$effort$loadings, row.names = FALSE, digits = 3)
@@ -915,12 +951,17 @@ library(lmerTest)
       print(coefTable(main$checkFits[[y]], y)[, c("term", "estimate", "se", "p")], row.names = FALSE, digits = 3)
     }
 
+    if(!doDsepNow) main$dsep <- list(claims = NULL, fisherC = NA_real_, df = NA_integer_, p = NA_real_)
     claimsNow <- main$dsep$claims
-    print(paste0("d-separation: ", sum(!is.na(claimsNow$p)), " claims tested, ", sum(is.na(claimsNow$p)), " skipped. ",
-                 "Fisher's C = ", round(main$dsep$fisherC, 2), ", df = ", main$dsep$df, ", p = ", signif(main$dsep$p, 3),
-                 " (p > 0.05: the data are consistent with the model)"))
-    print("Smallest p-values (candidate missing paths):")
-    print(head(claimsNow[!is.na(claimsNow$p), c("response", "other", "n", "p")], 10), row.names = FALSE, digits = 3)
+    if(is.null(claimsNow)) {
+      print("d-separation: not run for this model (dsepVariants)")
+    } else {
+      print(paste0("d-separation: ", sum(!is.na(claimsNow$p)), " claims tested, ", sum(is.na(claimsNow$p)), " skipped. ",
+                   "Fisher's C = ", round(main$dsep$fisherC, 2), ", df = ", main$dsep$df, ", p = ", signif(main$dsep$p, 3),
+                   " (p > 0.05: the data are consistent with the model)"))
+      print("Smallest p-values (candidate missing paths):")
+      print(head(claimsNow[!is.na(claimsNow$p), c("response", "other", "n", "p")], 10), row.names = FALSE, digits = 3)
+    }
 
 
     ##### Step 7: variance in each outcome explained by the whole model
@@ -935,22 +976,25 @@ library(lmerTest)
     foldsNow <- foldOf[d$Fish_ID]
     nCvFail <- 0
     for(o in outcomes) cvPred[[o]] <- NA_real_
-    for(k in seq_len(cvFolds)) {
+    # One fold: fit without its fish, predict them (NULL if it fails). Folds run in parallel with nCores > 1
+    cvFold <- function(k) {
       testRows <- which(foldsNow == k)
-      if(length(testRows) == 0) next
+      if(length(testRows) == 0) return(list(rows = integer(0), pred = NULL))
       fitK <- tryCatch(suppressWarnings(suppressMessages(fitAll(d[-testRows, , drop = FALSE]))), error = function(e) NULL)
-      if(is.null(fitK)) {
-        nCvFail <- nCvFail + 1
-        next
-      }
+      if(is.null(fitK)) return(NULL)
       # Effort scores of the left-out fish from the training fit (Behavior_fish is a measured trait of each fish)
       dTest <- addEffortParts(d[testRows, , drop = FALSE], fitK$effort$scoreNew(d[testRows, , drop = FALSE]))
       predK <- tryCatch(suppressWarnings(wholePredict(fitK$fits, dTest)), error = function(e) NULL)
-      if(is.null(predK)) {
+      if(is.null(predK)) return(NULL)
+      list(rows = testRows, pred = predK)
+    }
+    for(resK in parMap(seq_len(cvFolds), cvFold)) {
+      if(is.null(resK)) {
         nCvFail <- nCvFail + 1
         next
       }
-      for(o in outcomes) cvPred[[o]][testRows] <- predK[[o]]
+      if(length(resK$rows) == 0) next
+      for(o in outcomes) cvPred[[o]][resK$rows] <- resK$pred[[o]]
     }
     if(nCvFail > 0) {
       print(paste0(nCvFail, " of ", cvFolds, " cross-validation folds failed to fit (their fish have no prediction)"))
@@ -991,7 +1035,8 @@ library(lmerTest)
     bootCoefs <- list()
     nFail <- 0
     fishIDs <- unique(d$Fish_ID)
-    for(k in seq_len(nBootNow)) {
+    # One bootstrap sample (NULL if it fails to fit). Samples run in parallel with nCores > 1 (no progress messages then)
+    bootOne <- function(k) {
       pick <- sample(fishIDs, length(fishIDs), replace = TRUE)
       dBoot <- do.call(rbind, lapply(seq_along(pick), function(j) {
         rowsNow <- d[d$Fish_ID == pick[j], , drop = FALSE]
@@ -999,14 +1044,22 @@ library(lmerTest)
         rowsNow
       }))
       runNow <- tryCatch(suppressWarnings(suppressMessages(runModel(dBoot))), error = function(e) NULL)
-      if(is.null(runNow)) {
+      if(k %% 50 == 0) print(paste0("Bootstrap ", k, " / ", nBootNow))
+      if(is.null(runNow)) return(NULL)
+      list(total = runNow$totalE[outcomes, ], totalStd = runNow$totalStd[outcomes, ],
+           coefs = setNames(runNow$coefs$estimate, paste(runNow$coefs$equation, runNow$coefs$term, sep = " : ")))
+    }
+    timeBoot <- Sys.time()
+    bootRes <- parMap(seq_len(nBootNow), bootOne)
+    if(nBootNow > 0) print(paste0("Bootstrap (", nBootNow, " samples): ", round(difftime(Sys.time(), timeBoot, units = "mins"), 1), " min"))
+    for(k in seq_along(bootRes)) {
+      if(is.null(bootRes[[k]])) {
         nFail <- nFail + 1
         next
       }
-      bootTotal[k, , ]    <- runNow$totalE[outcomes, ]
-      bootTotalStd[k, , ] <- runNow$totalStd[outcomes, ]
-      bootCoefs[[k]] <- setNames(runNow$coefs$estimate, paste(runNow$coefs$equation, runNow$coefs$term, sep = " : "))
-      if(k %% 50 == 0) print(paste0("Bootstrap ", k, " / ", nBootNow))
+      bootTotal[k, , ]    <- bootRes[[k]]$total
+      bootTotalStd[k, , ] <- bootRes[[k]]$totalStd
+      bootCoefs[[k]] <- bootRes[[k]]$coefs
     }
     if(nFail > 0) {
       print(paste0(nFail, " of ", nBootNow, " bootstrap samples failed to fit and were left out"))
@@ -1047,7 +1100,7 @@ library(lmerTest)
     ##### Save this model
     write.csv(coefsNow,  file.path(outFolder, paste0("coefficients_", lab, ".csv")), row.names = FALSE)
     write.csv(effects,   file.path(outFolder, paste0("effects_", lab, ".csv")), row.names = FALSE)
-    write.csv(claimsNow, file.path(outFolder, paste0("dsep_claims_", lab, ".csv")), row.names = FALSE)
+    if(!is.null(claimsNow)) write.csv(claimsNow, file.path(outFolder, paste0("dsep_claims_", lab, ".csv")), row.names = FALSE)
     write.csv(eqSummary, file.path(outFolder, paste0("equations_", lab, ".csv")), row.names = FALSE)
     write.csv(idCheck,   file.path(outFolder, paste0("identity_check_", lab, ".csv")), row.names = FALSE)
 
@@ -1065,6 +1118,8 @@ library(lmerTest)
       rowNow[[paste0("R2_whole_cv_", o)]] <- r2Table$R2_whole_cv[r2Table$outcome == o]
     }
     comparison <- rbind(comparison, rowNow)
+    write.csv(comparison, file.path(outFolder, "model_comparison_partial.csv"), row.names = FALSE)   # so far (no AIC); in case the run stops
+    print(paste0("Model ", lab, " done in ", round(difftime(Sys.time(), timeModel, units = "mins"), 1), " min (", format(Sys.time(), "%H:%M"), ")"))
   }
 
 
@@ -1202,5 +1257,6 @@ library(lmerTest)
   results$settings <- list(datasetFile = datasetFile, variants = variants, structures = structures, randomTerm = randomTerm,
                            refType = refType, refFrac = refFrac, nBoot = nBoot, cvFolds = cvFolds,
                            standardizeIndicators = standardizeIndicators, checkEqs = checkEqs, identities = identityEqs)
+  if(nCores > 1) parallel::stopCluster(cl)
   saveRDS(results, file.path(outFolder, paste0("SEM_results", if(multiPerFish) "" else "_byFish", ".rds")))
   print(paste0("Results saved in: ", normalizePath(outFolder)))

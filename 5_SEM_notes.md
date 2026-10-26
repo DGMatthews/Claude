@@ -104,3 +104,11 @@ The flow correction is U_mouth = U_node × (1 + (z/R)²)^k, with Muller's k = 1.
    - If distance still matters as much, the blur / node-placement explanation is more likely.
 
 The pressure correction g(s) is unchanged: it comes from Muller's potential, so it has no free exponent.
+
+## Speed
+
+Almost all the run time is refitting mixed models: about 2 refits per d-separation claim (~1600 claims per model), one refit of every equation per cross-validation fold, and one refit of everything per bootstrap sample.
+- `nCores` runs the claims, folds and bootstrap samples in parallel. The default is all cores but one.
+- `dsepVariants` limits the d-separation test to the models that need it; `character(0)` = none. It is the slowest part of a model without a bootstrap.
+- `nBoot <- 0` gives no confidence intervals and leaves everything else the same.
+- Bootstrapped models run last. `model_comparison_partial.csv` is saved after each model. The run time of each model and of the bootstrap is printed.
