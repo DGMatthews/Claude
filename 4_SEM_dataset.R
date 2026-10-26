@@ -140,9 +140,10 @@ rm(list=ls())
   }
 
   # Satiation = strike number for the fish (E01 = 1, E02 = 2, ...), from the end of the video name
-  kin$Satiation <- suppressWarnings(as.numeric(sub("^.*_E([0-9]+)$", "\\1", kin$vidName)))
+    # The name can end in the take number after it (_000000, _000001, ...), which is skipped
+  kin$Satiation <- suppressWarnings(as.numeric(sub("^.*_E([0-9]+)(_[0-9]{6})?$", "\\1", kin$vidName)))
   if(any(is.na(kin$Satiation))) {
-    print(paste0(sum(is.na(kin$Satiation)), " video names don't end in _E##, so their Satiation is NA:"))
+    print(paste0(sum(is.na(kin$Satiation)), " video names don't end in _E## (or _E##_######), so their Satiation is NA:"))
     print(head(kin$vidName[is.na(kin$Satiation)], 10))
   }
 
