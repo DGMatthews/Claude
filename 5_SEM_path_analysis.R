@@ -75,6 +75,7 @@ library(lmerTest)
     # compareWidthModels: with the other buccal width models (main, noRetract); add both to script 4's widthModels first
     # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
     # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
+    # compareFlowKinematic: pressure from the kinematic (buccal-volume) flow instead of the measured flow (structure flowKinematic)
     # compareFlowDirect:  measured flow predicted directly from the predictors of buccal volume, without buccal volume (structure flowDirect)
     # compareMullerK:     the same model with the flow corrected with script 3's second decay exponent (flow version
       # "staticK+mouthFrontCorrK"; needs mullerExponentAlt set in script 3 and script 4 rerun). Different response data (the measured
@@ -90,6 +91,7 @@ library(lmerTest)
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
+  compareFlowKinematic <- TRUE  ### CHANGE
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePressureK   <- TRUE    ### CHANGE
   comparePeak        <- FALSE   ### CHANGE
@@ -103,6 +105,7 @@ library(lmerTest)
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
+  if(compareFlowKinematic) variants <- rbind(variants, transform(compareBase, structure = "flowKinematic"))
   if(compareMullerK)     variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK"))
   if(compareMullerK && compareDistance) variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK", structure = "noDist"))
   if(comparePressureK)   variants <- rbind(variants, transform(compareBase, pressure = "K"))
@@ -139,7 +142,17 @@ library(lmerTest)
                                                                     "+ Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax + A_tmax"),
                                     U_flow_ef_meas_acc_tmax = paste("Relative_tmax * Kinetic_Synchronization + static_node_zR_tmax",
                                                                     "+ Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax + A_tmax + A_vel_tmax"),
-                                    U_flow_ef_meas_mean     = "Kinetic_Synchronization + Hyoid_Max + Protrusion_Max + A_Max + A_mean + ttpg"))   ### CHANGE
+                                    U_flow_ef_meas_mean     = "Kinetic_Synchronization + Hyoid_Max + Protrusion_Max + A_Max + A_mean + ttpg"),
+                     # Pressure from the flow predicted by the kinematics (buccal volume rate / gape area, fish frame) instead of the
+                       # measured flow: U = V_buccal_vel / A, dU/dt = V_buccal_acc / A - V_buccal_vel A_vel / A^2. Same terms otherwise
+                       # The PIV pressure is calculated from the same PIV velocity field as the measured flow, so the two share each video's
+                       # measurement scale. If pressure is predicted as well or better from the kinematic flow, the measured-flow link was
+                       # carrying that shared PIV scale rather than the biology. The measured-flow equations stay (as outcomes)
+                     flowKinematic = c(Max_sub_pressure = paste("I(-0.5 * rho * (V_buccal_vel_tmax / A_tmax / 1000)^2) + I(0.5 * rho * (U_ram_tmax / 1000)^2)",
+                                                                "+ I(rho * R_tmax * (V_buccal_acc_tmax / A_tmax - V_buccal_vel_tmax * A_vel_tmax / A_tmax^2) / 1e6)",
+                                                                "+ I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
+                                                                "+ I(rho * (V_buccal_vel_tmax / A_tmax) * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)",
+                                                                "+ pressure_node_zR")))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
@@ -200,6 +213,11 @@ library(lmerTest)
   nBoot  <- 1000   ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
+
+  # Flow measurement check: correlations between the kinematic flow prediction (V_buccal_vel / A) and the measured flows
+    # (static node and mouth front, fish frame, at tmax / tmaxVel), overall, between fish and within fish, and a latent Flow
+    # (lavaan, FIML) with the three as indicators. Loadings near 0 = that indicator doesn't measure the shared flow
+  flowLatentCheck <- TRUE   ### CHANGE
 
   # Speed. Almost all the run time is refitting the mixed models:
     # d-separation ~2 refits per claim (~1600 claims per model), cross-validation 1 refit of every equation per fold,
@@ -967,6 +985,46 @@ library(lmerTest)
     for(y in names(main$checkFits)) {
       print(paste0(y, ": n = ", nobs(main$checkFits[[y]]), ", R2 = ", round(rSquared(main$checkFits[[y]])[1], 3)))
       print(coefTable(main$checkFits[[y]], y)[, c("term", "estimate", "se", "p")], row.names = FALSE, digits = 3)
+    }
+
+    ##### Flow measurement check (flowLatentCheck): do the kinematic prediction and the two PIV flows measure the same flow?
+    if(flowLatentCheck && variants$timeBasis[vNow] != "peak") {
+      flowInd <- data.frame(Fish_ID = d$Fish_ID, kinematic = d$V_buccal_vel_tmax / d$A_tmax, PIV_static = d$U_flow_ff_tmax)
+      mfKey <- paste(variants$timeBasis[vNow], variants$widthModel[vNow], "mouthFrontCorrK", sep = "|")   # mouth-front flow, k = mullerExponentAlt
+      if(mfKey %in% names(allDatasets)) {
+        flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ff_tmax[match(d$vidName, allDatasets[[mfKey]]$vidName)]
+      }
+      indNames <- setdiff(names(flowInd), "Fish_ID")
+      flowInd[indNames] <- lapply(flowInd[indNames], function(v) ifelse(is.finite(v), v, NA))
+      # Between fish: fish means. Within fish: each strike minus its fish's mean (strike-to-strike changes)
+      fishMeans <- aggregate(flowInd[indNames], list(Fish_ID = flowInd$Fish_ID), function(v) mean(v, na.rm = TRUE))
+      withinNow <- flowInd[indNames] - fishMeans[match(flowInd$Fish_ID, fishMeans$Fish_ID), indNames]
+      pairsF <- combn(indNames, 2, simplify = FALSE)
+      corTable <- do.call(rbind, lapply(pairsF, function(pp) {
+        okAll <- complete.cases(flowInd[pp])
+        okB   <- complete.cases(fishMeans[pp]) & is.finite(rowSums(fishMeans[pp]))
+        okW   <- complete.cases(withinNow[pp])
+        data.frame(pair = paste(pp, collapse = " ~ "), n_videos = sum(okAll), cor_all = if(sum(okAll) > 2) cor(flowInd[okAll, pp])[1, 2] else NA,
+                   n_fish = sum(okB), cor_between_fish = if(sum(okB) > 2) cor(fishMeans[okB, pp])[1, 2] else NA,
+                   cor_within_fish = if(sum(okW) > 2) cor(withinNow[okW, pp])[1, 2] else NA)
+      }))
+      print("Flow measurement check: kinematic flow prediction vs. measured flows (fish frame, mm/s)")
+      print(corTable, row.names = FALSE, digits = 3)
+      if(length(indNames) >= 3) {
+        flowLat <- tryCatch(suppressWarnings(cfa(paste("Flow =~", paste(indNames, collapse = " + ")),
+                                                 data = as.data.frame(scale(flowInd[indNames])), missing = "ml", std.lv = TRUE)),
+                            error = function(e) NULL)
+        if(!is.null(flowLat)) {
+          loadF <- standardizedSolution(flowLat)
+          loadF <- loadF[loadF$op == "=~", c("rhs", "est.std", "se", "pvalue")]
+          # The factor's sign is arbitrary: orient it so the static-node flow loads positively
+          if(loadF$est.std[loadF$rhs == "PIV_static"] < 0) loadF$est.std <- -loadF$est.std
+          print("Latent Flow (standardized loadings; FIML):")
+          print(loadF, row.names = FALSE, digits = 3)
+        } else {
+          print("Latent Flow: the measurement model didn't fit")
+        }
+      }
     }
 
     if(!doDsepNow) main$dsep <- list(claims = NULL, fisherC = NA_real_, df = NA_integer_, p = NA_real_)

@@ -120,3 +120,9 @@ The pressure correction p_mouth = p_node / g(s) uses Muller's g(s) = 1 − s/√
 - **Script 3's check "Pressure decay estimated within videos":** within each video, it compares log(pressure at the fixed pressure-peak node / unsteady pressure predicted at the aperture from the kinematics, −ρ d(UR)/dt) with s. It reports a power exponent m, for (1+s²)^-m, and the best k for g_k(s). It also reports how much better each fits than Muller's decay.
 - **The second correction:** `pressureDecayAlt` in script 3 sets it. "velocityK" uses g_k with `mullerExponentAlt`; a number m uses a power decay.
 - **Carrying it through:** script 4 carries it as `Max_sub_pressure_K`, and script 5 compares it with `comparePressureK`, with and without the distance covariates.
+
+## The flow link
+
+Within videos, the kinematic flow prediction tracks the measured flow almost perfectly (~0.95). Across videos it barely correlates, even on the peak basis, where each variable is taken at its own maximum and the lag drops out (flow R² 0.08). So what's missing is each video's scale, not its timing. The PIV pressure is calculated from the same PIV velocity field, so measured flow and pressure share that scale.
+- **`compareFlowKinematic` (structure `flowKinematic`):** builds the pressure equation from the kinematic flow (V_buccal_vel / A) instead of the measured flow. Only predictors change, so it's in the same AIC group as the base model.
+- **`flowLatentCheck`:** prints correlations between the kinematic prediction and the two PIV flows, overall, between fish and within fish. It also fits a latent Flow with the three as indicators. Needs script 4's `mouthFrontCorrK` flow version.

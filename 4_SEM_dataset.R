@@ -70,7 +70,8 @@ rm(list=ls())
     # Add "main" (bar model) or "noRetract" back to compare them in script 5 (compareWidthModels)
   widthModels  <- c("noWidth")   ### CHANGE  any of "noWidth", "main", "noRetract"
   flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr",
-                    "staticK+mouthFrontCorrK")   ### CHANGE
+                    "staticK+mouthFrontCorrK", "mouthFrontCorrK")   ### CHANGE
+    # "mouthFrontCorrK": the mouth-front flow (k = mullerExponentAlt) on its own; script 5's flow measurement check uses it
     # "staticK+mouthFrontCorrK": the same as the default, corrected with script 3's second decay exponent (mullerExponentAlt)
       # Only made when script 3 was run with mullerExponentAlt set; otherwise skipped with a message
 
