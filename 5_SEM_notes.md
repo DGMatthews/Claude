@@ -170,3 +170,12 @@ Script 6 reads `SEM_results.rds` and writes three exports for one model (`export
 - **Total effects on each outcome:** standardized across strikes and across fish means. See `SEM_export_total_effects.md`.
 
 Script 5 now also saves the path structure and bootstrap intervals for the standardized direct effects.
+
+## Whole-model R² by group of starting variables (`r2Decompose`)
+
+Script 5 recalculates the whole-model prediction of each outcome twice per group of starting (exogenous) variables: once with that group held at its mean, and once with only that group varying.
+- **Groups:** PIV node distance (measurement), ram, Effort (behaviour), morphology (one value per fish), kinematics and timing (per strike).
+- **`unique_share`** = R²_whole − R²_without: the variance only that group explains.
+- **`R2_alone`**: the group by itself, shared variance included.
+- **Interpretation:** these values are in-sample (main fit). Because of the products and interactions, neither adds up exactly to R²_whole.
+- **Output:** `r2_decomposition_<model>.csv`, also copied into script 6's `export_info.md`.
