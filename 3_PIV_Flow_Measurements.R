@@ -53,8 +53,8 @@ rm(list=ls())
   suffixMouthMarks <- '.mouthlandmarks.csv'
 
   # Columns in the mouth-front files with the position (px, PIV image) of the maximum in each frame, for _mouthFrontCorr
-  frontXcol <- 'x_px'   ### CHECK  column names in the new mouth-front files
-  frontYcol <- 'y_px'   ### CHECK
+  frontXcol <- 'mouth_front_velocity_x_px'
+  frontYcol <- 'mouth_front_velocity_y_px'
 
   # Kinematics output (from 2_ACxTRC_Kinematic_Measurements_Sept2026.R)
   pathData      <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/Data'
@@ -408,11 +408,13 @@ rm(list=ls())
         velRaw$mouthFront <- toKinFrames(frontNow$time_ms, frontNow$mouth_front_velocity_raw_m_per_s * 1000, nNow, frameRate)
 
         # Corrected to the aperture, frame by frame, from where the maximum was in that frame (needs the mouth landmarks)
-        if(!all(c(frontXcol, frontYcol) %in% names(frontNow))) {
-          stop("Mouth-front file has no '", frontXcol, "' / '", frontYcol, "' columns (set frontXcol / frontYcol). Columns: ",
-               paste(names(frontNow), collapse = ", "), ". File: ", basename(fileFront))
+        # Files without the position columns (not rerun): no corrected version for this video, logged
+        frontPosOK <- all(c(frontXcol, frontYcol) %in% names(frontNow))
+        if(!frontPosOK) {
+          skippedFlow <- addSkip(skippedFlow, vidNow, "Files", paste0("Mouth-front file has no '", frontXcol, "' / '", frontYcol,
+                                                                     "' columns: no mouthFrontCorr. File: ", basename(fileFront)))
         }
-        if(marksOK) {
+        if(marksOK && frontPosOK) {
           frontX <- toKinFrames(frontNow$time_ms, frontNow[[frontXcol]], nNow, frameRate)
           frontY <- toKinFrames(frontNow$time_ms, frontNow[[frontYcol]], nNow, frameRate)
           dFront <- nodeDist(frontX, frontY)
