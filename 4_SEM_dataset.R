@@ -75,6 +75,11 @@ rm(list=ls())
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
 
+  # Buccal volume shrinking at peak velocity (V_buccal_vel_tmaxVel < 0) isn't trusted: that video's buccal-volume values
+    # (V_buccal_vel, V_buccal_acc, V_buccal_Max, U_flow_ff_predicted_mean_bigGape) are NA in every dataset, tmax and tmaxVel
+    # Checked separately for each width model. buccal_excluded = TRUE marks them
+  dropNegBuccalVel <- TRUE     ### CHANGE
+
   # Effort inputs from the feeding data sheet: name in this dataset = column in the data sheet
     # Satiation isn't in the data sheet: it's the strike number for the fish (XX in ..._EXX of the video name), set below
   effortCols <- c(Prey_num     = "Prey.number",         ### CHECK
@@ -265,6 +270,10 @@ rm(list=ls())
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
     for(v in strikeVarsBuccal) out[[v]] <- kin[[paste0(v, widthSuffix)]]
+
+    # Buccal volume shrinking at tmaxVel: no buccal-volume values for this video (dropNegBuccalVel)
+    out$buccal_excluded <- dropNegBuccalVel & (kin[[paste0("V_buccal_vel_tmaxVel", widthSuffix)]] < 0) %in% TRUE
+    out[out$buccal_excluded, c(paste0(timeVarsBuccal, "_tmax"), strikeVarsBuccal)] <- NA
     for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowParts(flowNow)[["means"]])]][flowRow]
     for(v in fishVars)         out[[v]] <- kin[[v]]
     for(v in flagVars)         out[[v]] <- kin[[v]]
@@ -370,6 +379,9 @@ rm(list=ls())
   for(tNow in names(datasets)) {
     d <- datasets[[tNow]]
     print(paste0("===== ", tNow, ": ", nrow(d), " rows, ", length(unique(d$Fish_ID)), " fish"))
+    if(dropNegBuccalVel) {
+      print(paste0(sum(d$buccal_excluded), " videos without buccal-volume values (volume shrinking at tmaxVel, width model ", widthModel, ")"))
+    }
     coverage <- sapply(semEquations, function(v) sum(complete.cases(d[, v])))
     print(data.frame(rows_with_all_variables = coverage))
 
