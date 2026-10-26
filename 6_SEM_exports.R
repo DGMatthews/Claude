@@ -39,6 +39,21 @@ rm(list=ls())
     # Max_sub_pressure) or the mean ("mean"). Both sheets are written; this one is QTL_traits_per_fish.csv
   perFishSummary <- "max"   ### CHANGE  "max" or "mean"
 
+  # Groups of variables (anatomical structures and other parts of the strike) for the partial effects: each phenotype's effect on
+    # each outcome through the paths that pass through any variable of the group. Name = group, value = a regular expression
+    # matched against variable names. A phenotype that is itself in a group has all its effect counted as going through that group
+    # A path can pass through several groups, so the groups overlap and their effects don't add up to the total
+  partialGroups <- c(neurocranium = "Neurocranium|Epaxial|Supraoccipital",
+                     hyoid        = "Hyoid|Sternohyoideus|Hypaxial|Urohyal|Ceratohyal",
+                     premaxilla   = "Protrusion|premaxilla",
+                     maxilla      = "Maxilla|^Oral_",               # maxilla and the oral four-bar (mandible -> maxilla -> premaxilla)
+                     mandible     = "Mandible|Protractor_hyoideus",
+                     opercular    = "Opercular|Operculum|IOP|RA_process",   # opercular four-bar (neurocranium -> mandible)
+                     gape         = "^R_|^A_|^R$|^A$",            # gape radius and area: downstream of mandible and premaxilla (overlaps them)
+                     ram          = "U_ram|Cov_R_Uram",
+                     timing       = "^T$|^ttpg$|^Time_|^tmax_from|^Relative_|Kinetic_Synchronization",
+                     effort       = "^Effort|^Behavior_fish$")   ### CHANGE
+
 
 #####################
 #  Read the results #
@@ -317,6 +332,94 @@ rm(list=ls())
 
 
 #################################
+#  3b. Partial effects by group #
+#################################
+
+  # Effect of x on an outcome through group G = total effect - the effect left when every path that enters G is cut
+    # (all arrows into G's variables removed: B[G, ] = 0). If x itself is in G, all its effect goes through G
+    # "none": the paths that pass through none of the groups (total - the effect through any group)
+  # Standardized effects multiply along paths, so the same calculation on the standardized direct effects gives the standardized
+    # partial effects, and the bootstrap samples of the direct effects give their intervals
+  totalsOf <- function(Bnow) solve(diag(nrow(Bnow)) - Bnow) - diag(nrow(Bnow))
+  groupMembers <- lapply(partialGroups, function(pat) nodeOrder[grepl(pat, nodeOrder)])
+  groupMembers$any_group <- unique(unlist(groupMembers))
+  for(g in names(partialGroups)) print(paste0("Group ", g, ": ", length(groupMembers[[g]]), " variables (", paste(head(groupMembers[[g]], 6), collapse = ", "),
+                                              if(length(groupMembers[[g]]) > 6) ", ..." else "", ")"))
+  # Partial effects for one direct-effect matrix: list of matrices [outcome, cause], one per group
+  partialOf <- function(Bnow) {
+    totNow <- totalsOf(Bnow)
+    out <- lapply(groupMembers, function(members) {
+      Bcut <- Bnow
+      Bcut[members, ] <- 0
+      throughNow <- totNow - totalsOf(Bcut)
+      inGroup <- colnames(Bnow) %in% members
+      throughNow[, inGroup] <- totNow[, inGroup]
+      throughNow[outcomes, , drop = FALSE]
+    })
+    out$none <- totNow[outcomes, , drop = FALSE] - out$any_group
+    # Rounding: differences that are 0 up to floating-point error are set to 0
+    tolNow <- 1e-9 * abs(totNow[outcomes, , drop = FALSE]) + 1e-14
+    lapply(out, function(m) { m[abs(m) <= tolNow] <- 0; m })
+  }
+  partRaw <- partialOf(main$B)
+  partStd <- partialOf(main$directStd)
+
+  # Bootstrap: rebuild the standardized direct-effect matrix of each sample from the saved arrows
+  bootDS <- res$bootDirectStd
+  partBoot <- NULL
+  if(!is.null(bootDS) && any(is.finite(bootDS))) {
+    edgeKeysNow <- strsplit(colnames(bootDS), " -> ", fixed = TRUE)
+    edgeFrom <- sapply(edgeKeysNow, `[`, 1)
+    edgeTo   <- sapply(edgeKeysNow, `[`, 2)
+    okRows <- which(apply(bootDS, 1, function(z) any(is.finite(z))))
+    partBoot <- lapply(okRows, function(k) {
+      Bk <- matrix(0, nrow(main$B), ncol(main$B), dimnames = dimnames(main$B))
+      valsNow <- bootDS[k, ]
+      valsNow[!is.finite(valsNow)] <- 0
+      Bk[cbind(edgeTo, edgeFrom)] <- valsNow
+      tryCatch(partialOf(Bk), error = function(e) NULL)
+    })
+    partBoot <- partBoot[!sapply(partBoot, is.null)]
+  }
+
+  partialTable <- do.call(rbind, lapply(outcomes, function(o) {
+    causes <- setdiff(nodeOrder, o)
+    do.call(rbind, lapply(c(names(partialGroups), "none"), function(g) {
+      rawNow <- partRaw[[g]][o, causes]
+      stdNow <- partStd[[g]][o, causes]
+      bootMat <- if(length(partBoot) > 0) sapply(partBoot, function(pb) pb[[g]][o, causes]) else NULL
+      data.frame(outcome = o, variable = causes, group = g, role = sapply(causes, roleOf), group_guess = sapply(causes, groupOf),
+                 variable_in_group = if(g == "none") FALSE else causes %in% groupMembers[[g]],
+                 partial = rawNow, partial_std = stdNow,
+                 partial_std_low  = if(!is.null(bootMat)) apply(bootMat, 1, quantile, lowQ, na.rm = TRUE) else NA_real_,
+                 partial_std_high = if(!is.null(bootMat)) apply(bootMat, 1, quantile, upQ, na.rm = TRUE) else NA_real_,
+                 partial_std_fish = rawNow * sdFish[causes] / sdFish[[o]],
+                 share_of_total = ifelse(main$totalE[o, causes] != 0, rawNow / main$totalE[o, causes], NA_real_),
+                 stringsAsFactors = FALSE, row.names = NULL)
+    }))
+  }))
+  partialTable$var_share_multiplier_fish <- partialTable$partial_std_fish^2
+  partialTable <- partialTable[partialTable$partial != 0 | partialTable$group == "none", ]
+  write.csv(partialTable, file.path(outNow, "partial_effects_by_group.csv"), row.names = FALSE)
+
+  # Wide versions (one row per variable, one column per group), fish-level standardized, for the per-structure QTL maps
+  for(o in outcomes) {
+    wideNow <- data.frame(variable = setdiff(nodeOrder, o), stringsAsFactors = FALSE)
+    wideNow$total_std_fish <- totalTable$total_std_fish[totalTable$outcome == o][match(wideNow$variable, totalTable$variable[totalTable$outcome == o])]
+    for(g in c(names(partialGroups), "none")) {
+      rowsG <- partialTable[partialTable$outcome == o & partialTable$group == g, ]
+      wideNow[[g]] <- rowsG$partial_std_fish[match(wideNow$variable, rowsG$variable)]
+      wideNow[[g]][is.na(wideNow[[g]])] <- 0
+    }
+    write.csv(wideNow, file.path(outNow, paste0("partial_effects_wide_", o, ".csv")), row.names = FALSE)
+  }
+  write.csv(data.frame(group = names(groupMembers), pattern = c(partialGroups, "(union of the groups)"),
+                       variables = sapply(groupMembers, paste, collapse = ", ")),
+            file.path(outNow, "partial_effect_groups.csv"), row.names = FALSE)
+  print(paste0("Partial effects: ", length(partialGroups), " groups + none (", if(length(partBoot) > 0) paste0(length(partBoot), " bootstrap samples") else "no bootstrap", ")"))
+
+
+#################################
 #  Model details and the docs   #
 #################################
 
@@ -345,7 +448,8 @@ rm(list=ls())
                  "", "## Files", "",
                  "- Path: `path_nodes.csv`, `path_edges.csv`, `path_equation_terms.csv`, `path_model.dot` (see `SEM_export_path.md`)",
                  "- QTL traits: `QTL_traits_per_strike.csv`, `QTL_traits_per_fish.csv`, `QTL_variable_list.csv` (see `SEM_export_QTL_traits.md`)",
-                 "- Total effects: `total_effects.csv` (see `SEM_export_total_effects.md`)")
+                 "- Total effects: `total_effects.csv` (see `SEM_export_total_effects.md`)",
+                 "- Partial effects by anatomical structure / group: `partial_effects_by_group.csv`, `partial_effects_wide_<outcome>.csv`, `partial_effect_groups.csv` (see `SEM_export_total_effects.md`)")
   writeLines(infoLines, file.path(outNow, "export_info.md"))
 
   if(!is.na(docsFolder)) {
