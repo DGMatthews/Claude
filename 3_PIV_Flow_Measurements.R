@@ -88,7 +88,7 @@ rm(list=ls())
   mullerExponent    <- 1.5   ### CHECK
     # Optional second exponent: adds the versions staticK and mouthFrontCorrK, corrected with it (NA = not made)
     # e.g. set it to the estimate from the check and rerun, then compare in script 5 (compareMullerK)
-  mullerExponentAlt <- NA    ### CHANGE
+  mullerExponentAlt <- 0.61  ### CHANGE  estimated within videos (k_within, ownLag: 0.61, 95% CI 0.52-0.70); the chosen version
   # Frames used for the exponent estimate: predicted earth-frame flow at least this share of its strike maximum
     # (log ratios of small values are mostly noise) and the node within maxZoverR / maxOffAxisOverR
   kFitMinPredFrac <- 0.3     ### CHANGE
