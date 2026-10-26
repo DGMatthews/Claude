@@ -288,12 +288,27 @@ library(lmerTest)
   }
 
   # Fit one equation: lmer with randomTerm if there are several rows per fish, otherwise lm
+    # (also lm, on one row per fish, when the response has one value per fish)
     # Uses the rows that have every variable in the equation (and Fish_ID)
     # REML = FALSE (maximum likelihood) for the likelihoods used in the model comparison
   fitEq <- function(response, rhs, d, extraTerms = NULL, REML = TRUE) {
     rhsNow  <- paste(c(rhs, extraTerms), collapse = " + ")
     varsNow <- c(response, varsOf(rhsNow), "Fish_ID")
     dNow <- d[complete.cases(d[, varsNow, drop = FALSE]), , drop = FALSE]
+
+    # Response with one value per fish (e.g. Protrusion_ROM, from the scans): one row per fish and lm, since a random intercept
+      # for fish can't be separated from the residual when the response never varies within a fish
+      # Numeric predictors that do vary within a fish are averaged; other columns take the fish's first row
+    fishLevel <- multiPerFish && nrow(dNow) > 0 &&
+      all(tapply(dNow[[response]], dNow$Fish_ID, function(x) length(unique(x)) <= 1))
+    if(fishLevel) {
+      firstRows <- dNow[!duplicated(dNow$Fish_ID), , drop = FALSE]
+      for(v in setdiff(varsOf(rhsNow), response)) {
+        if(is.numeric(dNow[[v]])) firstRows[[v]] <- as.vector(tapply(dNow[[v]], dNow$Fish_ID, mean)[firstRows$Fish_ID])
+      }
+      return(lm(as.formula(paste(response, "~", rhsNow)), data = firstRows))
+    }
+
     if(multiPerFish) {
       lmer(as.formula(paste(response, "~", rhsNow, "+", randomTerm)), data = dNow, REML = REML, control = lmerCtrl)
     } else {
