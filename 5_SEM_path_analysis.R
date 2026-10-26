@@ -79,6 +79,9 @@ library(lmerTest)
     # compareMullerK:     the same model with the flow corrected with script 3's second decay exponent (flow version
       # "staticK+mouthFrontCorrK"; needs mullerExponentAlt set in script 3 and script 4 rerun). Different response data (the measured
       # flow), so its own aic_group: compare by the cross-validated R^2 of pressure, and by how much static_node_zR still matters
+    # comparePressureK:   the same model with pressure corrected by script 3's second decay (Max_sub_pressure_K, pressureDecayAlt),
+      # and without the distance covariates if compareDistance. Different outcome data, so its own aic_group and cv_group:
+      # the question is whether pressure_node_zR still matters (base vs. noDist) once the pressure correction matches the flow's decay
     # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
       # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
@@ -88,8 +91,12 @@ library(lmerTest)
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
+  comparePressureK   <- TRUE    ### CHANGE
   comparePeak        <- FALSE   ### CHANGE
   compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK", ktVersion = "static", structure = "base")   ### CHANGE
+  # Pressure version of each model: "corrected" (Max_sub_pressure from script 4) or "K" (Max_sub_pressure_K)
+  if(is.null(variants$pressure)) variants$pressure <- "corrected"
+  compareBase$pressure <- "corrected"
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
   if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("main", "noRetract")))
@@ -98,9 +105,12 @@ library(lmerTest)
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
   if(compareMullerK)     variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK"))
   if(compareMullerK && compareDistance) variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK", structure = "noDist"))
+  if(comparePressureK)   variants <- rbind(variants, transform(compareBase, pressure = "K"))
+  if(comparePressureK && compareDistance) variants <- rbind(variants, transform(compareBase, pressure = "K", structure = "noDist"))
   if(comparePeak)        variants <- rbind(variants, transform(compareBase, timeBasis = "peak"))
     # Other models can be added with rbind(variants, data.frame(...))
-  variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
+  variants$label <- with(variants, paste0(paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"),
+                                          ifelse(pressure == "corrected", "", paste0("_pressure", pressure))))
 
   # Alternative equation sets (different path structures), used by name in variants$structure
     # Each is a named character vector: name = response, value = new right-hand side (NA removes that equation)
@@ -232,9 +242,9 @@ library(lmerTest)
     # Performance 2, Total_ingested_volume = T<A><U_flow_ff> + T Cov(A, U_flow_ff), is an identity (below): script 3 calculates it this way
 
     # Gape (#)
-    R_tmax     = "Protrusion_tmax + Mandible_depression_tmax",
+    R_tmax     = "Protrusion_tmax + Mandible_depression_tmax + Mandible_ang_tmax + Mandible_Max",   # + the jaw angle itself (d-separation)
     R_vel_tmax = "Protrusion_vel_tmax + Mandible_dep_vel_tmax",
-    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_Max + R_tmax",   # mean gape also depends on the largest gape and the gape at tmax
+    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_Max + R_tmax + Mandible_ang_tmax + Mandible_Max",   # + the largest gape, the gape at tmax and the jaw angle
     R_Max      = "Protrusion_Max + Mandible_depression_Max",                 # largest gape: as R_tmax, from the components' maxima
 
     # Protrusion (#)
@@ -885,6 +895,13 @@ library(lmerTest)
     print(paste0("################ Model: ", lab, " ################"))
     timeModel <- Sys.time()
     d <- allDatasets[[variants$dataKey[vNow]]]
+    # Pressure corrected with script 3's second decay (comparePressureK)
+    if(variants$pressure[vNow] == "K") {
+      if(!("Max_sub_pressure_K" %in% names(d)) || all(is.na(d$Max_sub_pressure_K))) {
+        stop("No Max_sub_pressure_K in the dataset: set pressureDecayAlt in script 3, rerun scripts 3 and 4, or set comparePressureK <- FALSE")
+      }
+      d$Max_sub_pressure <- d$Max_sub_pressure_K
+    }
 
     # This model's equations and path structure (used by the functions above)
     list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow], variants$timeBasis[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
@@ -1109,7 +1126,7 @@ library(lmerTest)
                            r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs,
                            bootTotal = bootTotal, bootTotalStd = bootTotalStd, nBootFailed = nFail)
 
-    rowNow <- data.frame(variants[vNow, c("label", "timeBasis", "widthModel", "flowVersion", "ktVersion", "structure")],
+    rowNow <- data.frame(variants[vNow, c("label", "timeBasis", "widthModel", "flowVersion", "ktVersion", "structure", "pressure")],
                          n_rows = nrow(d), n_fish = length(unique(d$Fish_ID)), n_equations = length(pathEqs),
                          n_parameters = sum(sapply(main$fits, function(m) attr(logLik(m), "df"))),
                          fisherC = main$dsep$fisherC, fisherC_df = main$dsep$df, fisherC_p = main$dsep$p, row.names = NULL)

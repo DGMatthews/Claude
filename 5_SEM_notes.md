@@ -112,3 +112,11 @@ Almost all the run time is refitting mixed models: about 2 refits per d-separati
 - `dsepVariants` limits the d-separation test to the models that need it; `character(0)` = none. It is the slowest part of a model without a bootstrap.
 - `nBoot <- 0` gives no confidence intervals and leaves everything else the same.
 - Bootstrapped models run last. `model_comparison_partial.csv` is saved after each model. The run time of each model and of the bootstrap is printed.
+
+## Testing the pressure decay
+
+The pressure correction p_mouth = p_node / g(s) uses Muller's g(s) = 1 − s/√(1+s²). That is the decay implied by the velocity profile (1 + s²)^-1.5.
+- **The velocity-profile version for any exponent:** the decay is g_k(s) = ∫_s^∞ (1+x²)^-k dx / ∫_0^∞ (1+x²)^-k dx. k = 1.5 gives Muller's g(s) exactly. With k = 0.61, g is 0.84 at s = 1 and 0.74 at s = 2; Muller's is 0.29 and 0.11.
+- **Script 3's check "Pressure decay estimated within videos":** within each video, it compares log(pressure at the fixed pressure-peak node / unsteady pressure predicted at the aperture from the kinematics, −ρ d(UR)/dt) with s. It reports a power exponent m, for (1+s²)^-m, and the best k for g_k(s). It also reports how much better each fits than Muller's decay.
+- **The second correction:** `pressureDecayAlt` in script 3 sets it. "velocityK" uses g_k with `mullerExponentAlt`; a number m uses a power decay.
+- **Carrying it through:** script 4 carries it as `Max_sub_pressure_K`, and script 5 compares it with `comparePressureK`, with and without the distance covariates.
