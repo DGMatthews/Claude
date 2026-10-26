@@ -674,16 +674,18 @@ rm(list=ls())
               }
             }
 
-            # PIV scale factor (no-width prediction): measured / predicted fish-frame flow, through the origin, at this video's best lag
+            # PIV scale factor (no-width prediction): measured / predicted, through the origin, at this video's best volume-rate lag
+              # On volume rates (predicted V_buccal' against A x measured fish-frame flow), not speeds: the predicted speed V'/A spikes
+              # while the gape is still small, and a fit on speeds would be dominated by those frames
             if(wNm == "noWidth") {
-              lagS <- flowData[[paste0("shapeLag", colEnd)]][i]
+              lagS <- flowData[[paste0("volLag", colEnd)]][i]
               if(!is.na(lagS)) {
                 kMeas <- strikeK + lagS
                 inNow <- kMeas >= 1 & kMeas <= nNow
-                measS <- rep(NA_real_, length(strikeK))
-                measS[inNow] <- smU$y[kMeas[inNow]] + U_ram_t[kMeas[inNow]]
-                okS <- is.finite(predNow) & is.finite(measS) & predNow >= kFitMinPredFrac * max(predNow, na.rm = TRUE)
-                if(sum(okS) >= 10) flowData[[paste0("PIV_scale_", verNow)]][i] <- sum(predNow[okS] * measS[okS]) / sum(predNow[okS]^2)
+                measQS <- rep(NA_real_, length(strikeK))
+                measQS[inNow] <- (smU$y[kMeas[inNow]] + U_ram_t[kMeas[inNow]]) * A_t[kMeas[inNow]]
+                okS <- is.finite(predQ) & is.finite(measQS) & predQ >= kFitMinPredFrac * max(predQ, na.rm = TRUE)
+                if(sum(okS) >= 10) flowData[[paste0("PIV_scale_", verNow)]][i] <- sum(predQ[okS] * measQS[okS]) / sum(predQ[okS]^2)
               }
             }
 
