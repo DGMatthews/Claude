@@ -63,30 +63,33 @@ library(lmerTest)
   variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+mouthFrontCorr",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
 
-  # Compare with the uncorrected static flow throughout: the same models with staticRaw, plus staticRaw with the node's distance
-    # from the mouth as a covariate (structure nodeDist, below)
-  compareStaticRaw <- FALSE   ### CHANGE  TRUE adds these models
-  if(compareStaticRaw) {
-    variants <- rbind(variants,
-                      transform(variants, flowVersion = "staticRaw"),
-                      data.frame(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "staticRaw",
-                                 ktVersion = "dynamic", structure = "nodeDist"))
-  }
+  # Optional comparisons (each adds models to variants)
+    # compareStaticRaw:   the same models with the uncorrected static flow (staticRaw) throughout
+    # compareDistance:    tmaxVel model without the node-distance covariates (structure noDist), to see how much they add
+    # compareWidthModels: tmaxVel model with the other buccal width models (noRetract, noWidth). Same responses, so compared by AIC
+  compareStaticRaw   <- FALSE   ### CHANGE
+  compareDistance    <- FALSE   ### CHANGE
+  compareWidthModels <- FALSE   ### CHANGE
+  baseVel <- data.frame(timeBasis = "tmaxVel", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "dynamic", structure = "base")
+  if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
+  if(compareDistance)    variants <- rbind(variants, transform(baseVel, structure = "noDist"))
+  if(compareWidthModels) variants <- rbind(variants, transform(baseVel[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
   # Alternative equation sets (different path structures), used by name in variants$structure
     # Each is a named character vector: name = response, value = new right-hand side (NA removes that equation)
-      # A value starting with "+" is added to the existing right-hand side instead of replacing it
+      # A value starting with "+" is added to the existing right-hand side instead of replacing it; "-" removes that term
     # e.g. structures$effortT <- c(T = "Effort_score") would make T a response of Effort (see the notes on T)
   structures <- list(base = character(0),
-                     # Distance of the static node from the mouth (multiples of R) in the instantaneous measured-flow equations,
-                       # so the uncorrected flow can be compared after allowing for where it was measured
-                     nodeDist = c(U_flow_ef_meas_tmax     = "+ static_node_zR_tmax",
-                                  U_flow_ef_meas_acc_tmax = "+ static_node_zR_tmax"))   ### CHANGE
+                     # Without the node-distance covariates (they are in the base equations)
+                     noDist = c(Max_sub_pressure        = "- pressure_node_zR",
+                                U_flow_ef_meas_tmax     = "- static_node_zR_tmax",
+                                U_flow_ef_meas_acc_tmax = "- static_node_zR_tmax"))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
-  bootVariants <- NULL   ### CHANGE
+  # bootVariants <- NULL   # all models (slow)
+  bootVariants <- c("tmaxVel_main_static+mouthFrontCorr_dynamic_base")   ### CHANGE  while the structure is still changing
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -103,6 +106,14 @@ library(lmerTest)
   # Effort indicators are put on the same scale (mean 0, SD 1) before the measurement model. T is in s, the others aren't
   standardizeIndicators <- TRUE
 
+  # Split Effort into a fish-level part and a strike-level part
+    # Behavior_fish: each fish's mean Effort score over its strikes = how hard that fish consistently strikes (its striking style).
+      # It also carries anything else consistent about the fish that the model doesn't include (e.g. genetics, unmeasured morphology)
+    # Effort_strike: each strike's Effort score minus its fish's mean = strike-to-strike effort
+    # Both feed every equation Effort feeds. Prey_num, Satiation and Fasting_time predict Effort_strike; Behavior_fish is exogenous
+    # FALSE = one Effort_score, as before
+  splitEffort <- TRUE   ### CHANGE
+
   # Reference values for the linearization (docs: "90% of max to avoid edge fitting problems")
     # "fracMax": refFrac x the value with the largest magnitude (keeps the sign, so pressure uses 90% of the most negative)
     # "median": the median
@@ -111,7 +122,7 @@ library(lmerTest)
   refFrac <- 0.9
 
   # Bootstrap
-  nBoot  <- 200    ### CHANGE  1000+ for the final run (200 is for checking the script)
+  nBoot  <- 50     ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
 
@@ -139,28 +150,29 @@ library(lmerTest)
       # If the physics holds exactly every coefficient is 1
     Max_sub_pressure = paste("I(-0.5 * rho * (U_flow_ff_tmax / 1000)^2) + I(0.5 * rho * (U_ram_tmax / 1000)^2)",
                              "+ I(rho * R_tmax * U_flow_ff_acc_tmax / 1e6) + I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
-                             "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)"),
+                             "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)",
+                             "+ pressure_node_zR"),   # distance of the pressure node from the mouth: what the aperture correction leaves
 
-    # Performance 2 (*): T<A><U_flow_ff> + T Cov(A, U_flow_ff). Coefficients are 1 if Total_ingested_volume is in mm^3
-    Total_ingested_volume = "I(T * A_mean * U_flow_ff_mean) + I(T * Cov_A_Uflowff)",   ### CHECK units of Total_ingested_volume
+    # Performance 2, Total_ingested_volume = T<A><U_flow_ff> + T Cov(A, U_flow_ff), is an identity (below): script 3 calculates it this way
 
     # Gape (#)
     R_tmax     = "Protrusion_tmax + Mandible_depression_tmax",
     R_vel_tmax = "Protrusion_vel_tmax + Mandible_dep_vel_tmax",
-    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean",
+    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_tmax",   # mean gape also depends on the peak gape
 
     # Protrusion (#)
     Protrusion_tmax     = "Neurocranium_tip_disp_tmax + Maxilla_tip_disp_tmax",
     Protrusion_vel_tmax = "Neurocranium_linear_vel_tmax + Maxilla_linear_vel_tmax",
-    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM",
+    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_tmax",   # mean protrusion also depends on the peak
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
     Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length)",
 
     # Measured flow (#)
-    U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_vel_tmax / A_tmax)",
-    U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_acc_tmax / A_tmax) + I(V_buccal_vel_tmax * A_vel_tmax / A_tmax^2)",
+      # + distance of the static velocity node from the mouth: what the aperture correction leaves
+    U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_vel_tmax / A_tmax) + static_node_zR_tmax",
+    U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_acc_tmax / A_tmax) + I(V_buccal_vel_tmax * A_vel_tmax / A_tmax^2) + static_node_zR_tmax",
     U_flow_ef_meas_mean     = "Kinetic_Synchronization + U_flow_ff_predicted_mean_bigGape",
 
     # Mandible rotation (#)
@@ -177,9 +189,20 @@ library(lmerTest)
 
     # Maxilla (*): output angular velocity = input angular velocity x KT
     Maxilla_angular_vel_tmax = "I(Mandible_angular_vel_tmax * {OralKT})",
+    # Linear velocity of the maxilla tip = angular velocity x maxilla length (*). Measured separately (tip landmark), so fitted
+    Maxilla_linear_vel_tmax  = "I(Maxilla_length * Maxilla_angular_vel_tmax)",
 
     # Effort (#), on the factor scores from step 1
-    Effort_score = "Prey_num + Satiation + Fasting_time")
+    Effort_score = "Prey_num + Satiation + Fasting_time",
+
+    # Effort drives the timing of the strike (#). T is also an Effort indicator, so its equation restates the measurement model
+      # in the path model, so that Effort's effects through T reach the outcomes
+    # The other times are parts of the strike, so they also depend on its duration T
+    T                = "Effort_score",
+    ttpg             = "T + Effort_score",
+    Time_hyoid       = "T + Effort_score",
+    Time_cranial     = "T + Effort_score",
+    tmax_from_Tstart = "T + Effort_score")
 
   # Check equations: how well the four-bar models predict the measured angles
     # Fitted and reported, but not part of the path model (nothing downstream uses them)
@@ -203,6 +226,8 @@ library(lmerTest)
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
     A_tmax                   = "(pi * W_jaw / 2) * R_tmax",       # gape area, as script 2 calculates it
+    # Performance 2 (script 3 calculates it exactly this way, so it isn't fitted)
+    Total_ingested_volume    = "T * A_mean * U_flow_ff_mean + T * Cov_A_Uflowff",
     A_vel_tmax               = "(pi * W_jaw / 2) * R_vel_tmax",
     Cov_A_Uflowff            = "(pi * W_jaw / 2) * Cov_R_Uflowff",
     Cov_R_Uflowff            = "Cov_R_Uflowefmeas + Cov_R_Uram",
@@ -235,7 +260,9 @@ library(lmerTest)
   effortIndicators <- c("Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean", "T")
 
   # Pairs never tested in the d-separation (the factor scores are made from the indicators, so they're dependent by construction)
-  dsepSkipPairs <- lapply(effortIndicators, function(v) c("Effort_score", v))
+  dsepSkipPairs <- c(lapply(effortIndicators, function(v) c("Effort_score", v)),
+                     lapply(effortIndicators, function(v) c("Effort_strike", v)),
+                     lapply(effortIndicators, function(v) c("Behavior_fish", v)))
 
 
 ##### Four-bar functions and sign settings from script 2
@@ -266,6 +293,10 @@ library(lmerTest)
       if(!is.na(changes[[nm]]) && grepl("^\\s*\\+", changes[[nm]])) {
         if(!(nm %in% names(eqs))) stop("Structure '", structureNow, "' adds to ", nm, ", which has no equation")
         eqs[nm] <- paste(eqs[[nm]], changes[[nm]])
+      } else if(!is.na(changes[[nm]]) && grepl("^\\s*-", changes[[nm]])) {
+        termNow <- trimws(sub("^\\s*-", "", changes[[nm]]))
+        if(!grepl(paste0(" + ", termNow), eqs[[nm]], fixed = TRUE)) stop("Structure '", structureNow, "': ", nm, " has no term ", termNow)
+        eqs[nm] <- sub(paste0(" + ", termNow), "", eqs[[nm]], fixed = TRUE)
       } else {
         eqs[nm] <- changes[[nm]]
       }
@@ -273,6 +304,12 @@ library(lmerTest)
     eqs <- eqs[!is.na(eqs)]
     for(nm in names(ktCols)) {
       eqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], eqs, fixed = TRUE)
+    }
+    # Effort split (splitEffort): the covariate equation becomes Effort_strike's, and Effort elsewhere becomes both parts
+    if(splitEffort && "Effort_score" %in% names(eqs)) {
+      names(eqs)[names(eqs) == "Effort_score"] <- "Effort_strike"
+      notCov <- names(eqs) != "Effort_strike"
+      eqs[notCov] <- gsub("Effort_score", "(Effort_strike + Behavior_fish)", eqs[notCov], fixed = TRUE)
     }
     eqs
   }
@@ -435,7 +472,31 @@ library(lmerTest)
     loadings <- standardizedSolution(fit)
     loadings <- loadings[loadings$op == "=~", c("rhs", "est.std", "se", "pvalue")]
     loadings$est.std <- flipNow * loadings$est.std
-    list(score = flipNow * scores, loadings = loadings, fit = fit)
+
+    # Scores for other strikes (e.g. fish left out in the cross-validation), with this fit and this standardization
+    centerNow <- sapply(d[, effortIndicators], mean, na.rm = TRUE)
+    scaleNow  <- sapply(d[, effortIndicators], sd, na.rm = TRUE)
+    scoreNew <- function(newd) {
+      indNew <- newd[, effortIndicators]
+      if(standardizeIndicators) {
+        for(v in effortIndicators) indNew[[v]] <- (indNew[[v]] - centerNow[[v]]) / scaleNow[[v]]
+      }
+      out <- rep(NA_real_, nrow(newd))
+      keepNew <- which(rowSums(!is.na(indNew)) > 0)
+      if(length(keepNew) > 0) out[keepNew] <- flipNow * lavPredict(fit, newdata = indNew[keepNew, , drop = FALSE], method = "Bartlett")[, "Effort"]
+      out
+    }
+    list(score = flipNow * scores, loadings = loadings, fit = fit, scoreNew = scoreNew)
+  }
+
+  # Behavior_fish (fish mean of the Effort scores) and Effort_strike (deviation from it), when splitEffort
+  addEffortParts <- function(d, scores) {
+    d$Effort_score <- scores
+    if(splitEffort) {
+      d$Behavior_fish <- ave(scores, d$Fish_ID, FUN = function(x) if(all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE))
+      d$Effort_strike <- scores - d$Behavior_fish
+    }
+    d
   }
 
 
@@ -443,7 +504,7 @@ library(lmerTest)
     # Returns the data with Effort_score added, the Effort model and the fitted equations
   fitAll <- function(d) {
     effortNow <- fitEffort(d)
-    d$Effort_score <- effortNow$score
+    d <- addEffortParts(d, effortNow$score)
     fits <- list()
     for(y in names(pathEqs)) {
       fits[[y]] <- tryCatch(suppressMessages(fitEq(y, pathEqs[[y]], d)), error = function(e) stop("Equation ", y, " failed: ", conditionMessage(e)))
@@ -656,7 +717,7 @@ library(lmerTest)
   # Parents of every variable in the path model
     # Identities are kept if their response is used by a path equation or by another kept identity
   buildStructure <- function(pathEqs, dataNames) {
-    usedVars <- unique(c(names(pathEqs), unlist(lapply(pathEqs, varsOf))))
+    usedVars <- unique(c(names(pathEqs), outcomes, unlist(lapply(pathEqs, varsOf))))   # outcomes kept even if they are identities
     activeIdentities <- character(0)
     repeat {
       newIds <- setdiff(intersect(names(identityEqs), usedVars), names(activeIdentities))
@@ -699,12 +760,12 @@ library(lmerTest)
     d <- allDatasets[[variants$dataKey[vNow]]]
 
     # This model's equations and path structure (used by the functions above)
-    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score")),
+    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
              envir = globalenv())
     print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
 
     # Every variable in the equations must be numeric (Prey_num is the one ordered factor)
-    varsUsedNow <- setdiff(unique(c(names(nodeParents), unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators)), "Effort_score")
+    varsUsedNow <- setdiff(unique(c(names(nodeParents), unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators)), c("Effort_score", "Effort_strike", "Behavior_fish"))
     notNumeric <- varsUsedNow[!sapply(varsUsedNow, function(v) is.numeric(d[[v]]) || (v == "Prey_num" && is.ordered(d[[v]])))]
     if(length(notNumeric) > 0) {
       stop("Variables that aren't numeric (check the data sheet / script 4): ",
@@ -778,7 +839,9 @@ library(lmerTest)
         nCvFail <- nCvFail + 1
         next
       }
-      predK <- tryCatch(suppressWarnings(wholePredict(fitK$fits, d[testRows, , drop = FALSE])), error = function(e) NULL)
+      # Effort scores of the left-out fish from the training fit (Behavior_fish is a measured trait of each fish)
+      dTest <- addEffortParts(d[testRows, , drop = FALSE], fitK$effort$scoreNew(d[testRows, , drop = FALSE]))
+      predK <- tryCatch(suppressWarnings(wholePredict(fitK$fits, dTest)), error = function(e) NULL)
       if(is.null(predK)) {
         nCvFail <- nCvFail + 1
         next
@@ -789,13 +852,29 @@ library(lmerTest)
       print(paste0(nCvFail, " of ", cvFolds, " cross-validation folds failed to fit (their fish have no prediction)"))
     }
 
+    # Outcomes that are identities (Total_ingested_volume) have no equation R^2 of their own: their fitted inputs are listed instead
+      # (the first fitted equations reached going up through the identities, with their R^2)
+    fittedInputs <- function(o) {
+      found <- character(0); todo <- o; seen <- character(0)
+      while(length(todo) > 0) {
+        v <- todo[1]; todo <- todo[-1]
+        if(v %in% seen) next
+        seen <- c(seen, v)
+        if(v %in% names(pathEqs) && v != o) { found <- c(found, v); next }
+        if(v %in% names(activeIdentities) || v == o) todo <- c(todo, nodeParents[[v]])
+      }
+      found
+    }
     r2Table <- do.call(rbind, lapply(outcomes, function(o) {
       wholeNow <- r2Of(d[[o]], predIn[[o]])
       cvNow    <- r2Of(d[[o]], cvPred[[o]])
-      data.frame(outcome = o, R2_local = eqSummary$R2_marginal[eqSummary$equation == o],
-                 R2_whole = wholeNow[["R2"]], n_whole = wholeNow[["n"]], R2_whole_cv = cvNow[["R2"]], n_cv = cvNow[["n"]])
+      localNow <- eqSummary$R2_marginal[eqSummary$equation == o]
+      inputsNow <- if(length(localNow) == 0) fittedInputs(o) else character(0)
+      data.frame(outcome = o, R2_local = if(length(localNow) == 0) NA_real_ else localNow,
+                 R2_whole = wholeNow[["R2"]], n_whole = wholeNow[["n"]], R2_whole_cv = cvNow[["R2"]], n_cv = cvNow[["n"]],
+                 fitted_inputs_R2 = paste(paste0(inputsNow, " ", round(eqSummary$R2_marginal[match(inputsNow, eqSummary$equation)], 3)), collapse = "; "))
     }))
-    print("Variance explained in each outcome:")
+    print("Variance explained in each outcome (R2_local NA = an identity; its fitted inputs and their R2 are listed):")
     print(r2Table, row.names = FALSE, digits = 3)
 
 

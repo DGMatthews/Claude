@@ -264,7 +264,7 @@ rm(list=ls())
                          names(kin))
   missingFlow <- setdiff(c(unlist(lapply(flowVersions, function(f) c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0)), flowParts(f)[["instant"]]),
                                                                      flowName(strikeVarsFlow, flowParts(f)[["means"]])))), "Max_sub_pressure", "Max_sub_pressure_corr",
-                           "static_node_zR_tmax", "static_node_zR_tmaxVel"),
+                           "static_node_zR_tmax", "static_node_zR_tmaxVel", "pressure_node_zR"),
                          names(flow))
   if(length(missingKin) > 0 || length(missingFlow) > 0) {
     stop("Columns not found. Kinematics: ", paste(missingKin, collapse = ", "), ". Flow: ", paste(missingFlow, collapse = ", "))
@@ -304,6 +304,9 @@ rm(list=ls())
       # (+ = in front of the mouth). The same in every flow version; a covariate for the uncorrected static flow in script 5
     out$static_node_zR_tmax <- flow[[paste0("static_node_zR_", timeNow)]][flowRow]
 
+    # Distance of the pressure peak node from the mouth (multiples of R), at the pressure peak. A covariate for pressure in script 5
+    out$pressure_node_zR <- flow$pressure_node_zR[flowRow]
+
     # SEM names for the per-strike variables
     names(out)[names(out) == "Ttotal"] <- "T"
     names(out)[names(out) == "Ttpg"]   <- "ttpg"
@@ -320,7 +323,7 @@ rm(list=ls())
 
     # PIV problem flagged in the prey column: no pressure or flow for this video, and no prey count
     out$PIV_flagged <- preyNow %in% flagsNow
-    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "Max_sub_pressure_raw", "static_node_zR_tmax")
+    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "Max_sub_pressure_raw", "static_node_zR_tmax", "pressure_node_zR")
     out[out$PIV_flagged, pivCols] <- NA
     preyNow[out$PIV_flagged] <- NA
     out$Prey_num <- factor(preyNow, levels = levelsNow, ordered = TRUE)
