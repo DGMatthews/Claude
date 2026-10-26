@@ -278,8 +278,10 @@ library(lmerTest)
 ###############
 
   # Variables (columns) in an equation's right side
+    # Functions passed by name (e.g. sd in apply(..., 1, sd)) aren't columns
   varsOf <- function(rhs) {
-    setdiff(all.vars(parse(text = rhs)), constantNames)
+    v <- setdiff(all.vars(parse(text = rhs)), constantNames)
+    v[!sapply(v, exists, mode = "function")]
   }
 
   # Fit one equation: lmer with randomTerm if there are several rows per fish, otherwise lm
