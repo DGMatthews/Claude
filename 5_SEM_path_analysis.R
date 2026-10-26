@@ -273,6 +273,12 @@ library(lmerTest)
     # (labels as in variants$label, e.g. "tmaxVel_noWidth_static+mouthFrontCorr_static_base")
   dsepVariants <- NULL   ### CHANGE
 
+  # Decomposition of the whole-model R^2 by groups of starting (exogenous) variables: the whole-model prediction is recalculated
+    # with one group held at its mean ("without": what the model loses without that group = its unique share), and with only
+    # that group varying ("alone"). In-sample, with the main fit (the whole-model R^2, not the cross-validated one)
+    # Groups: PIV node distance (measurement), ram, Effort, morphology (one value per fish), kinematics and timing (per strike)
+  r2Decompose <- TRUE   ### CHANGE
+
   # The two performance outcomes. Effects on these are reported
   outcomes <- c("Max_sub_pressure", "Total_ingested_volume")
 
@@ -1176,6 +1182,46 @@ library(lmerTest)
     print(r2Table, row.names = FALSE, digits = 3)
 
 
+    ##### Step 7b: which groups of starting variables carry the whole-model R^2 (r2Decompose)
+      # unique_share = R2_whole - R2_without: the variance only that group explains (shared variance between groups counts
+      # for neither). R2_alone: the group by itself (shared variance counted). Because of the products and interactions,
+      # neither adds up exactly to R2_whole
+    r2Dec <- NULL
+    if(r2Decompose) {
+      dDec <- main$d
+      exoNow <- intersect(exogenous, names(dDec))
+      exoNow <- exoNow[sapply(exoNow, function(v) is.numeric(dDec[[v]]))]
+      fishLevelOf <- function(v) all(tapply(dDec[[v]], dDec$Fish_ID, function(z) { z <- z[is.finite(z)]; length(unique(z)) <= 1 }))
+      exoGroup <- sapply(exoNow, function(v) {
+        if(grepl("_node_zR", v)) return("measurement: PIV node distance")
+        if(grepl("^U_ram|^Cov_R_Uram", v)) return("ram")
+        if(v %in% c("Effort_strike", "Behavior_fish", "Effort_score")) return("Effort (behaviour)")
+        if(fishLevelOf(v)) "morphology (per fish)" else "kinematics and timing (per strike)"
+      })
+      holdAt <- function(dd, vars) { for(v in vars) dd[[v]] <- mean(dDec[[v]], na.rm = TRUE); dd }
+      r2Dec <- do.call(rbind, lapply(outcomes, function(o) {
+        rowsOk <- is.finite(predIn[[o]]) & is.finite(dDec[[o]])
+        if(sum(rowsOk) < 10) return(NULL)
+        dRows <- dDec[rowsOk, , drop = FALSE]
+        r2Full <- r2Of(dRows[[o]], predIn[[o]][rowsOk])[["R2"]]
+        do.call(rbind, lapply(sort(unique(exoGroup)), function(g) {
+          varsG <- names(exoGroup)[exoGroup == g]
+          predWithout <- tryCatch(wholePredict(main$fits, holdAt(dRows, varsG))[[o]], error = function(e) rep(NA_real_, nrow(dRows)))
+          predAlone   <- tryCatch(wholePredict(main$fits, holdAt(dRows, setdiff(exoNow, varsG)))[[o]], error = function(e) rep(NA_real_, nrow(dRows)))
+          data.frame(outcome = o, group = g, n_variables = length(varsG), n_rows = sum(rowsOk), R2_whole = r2Full,
+                     R2_without = r2Of(dRows[[o]], predWithout)[["R2"]], R2_alone = r2Of(dRows[[o]], predAlone)[["R2"]],
+                     variables = paste(varsG, collapse = ", "), row.names = NULL)
+        }))
+      }))
+      if(!is.null(r2Dec)) {
+        r2Dec$unique_share <- r2Dec$R2_whole - r2Dec$R2_without
+        r2Dec <- r2Dec[, c("outcome", "group", "n_variables", "n_rows", "R2_whole", "unique_share", "R2_without", "R2_alone", "variables")]
+        print("Whole-model R2 by group of starting variables (unique_share = lost when the group is held at its mean; R2_alone = the group by itself):")
+        print(r2Dec[, setdiff(names(r2Dec), "variables")], row.names = FALSE, digits = 3)
+      }
+    }
+
+
     ##### Step 6: bootstrap over fish
       # Fish are resampled with all their strikes. A fish drawn twice gets two IDs, so the random effect treats them as two fish
     doBoot <- is.null(bootVariants) || lab %in% bootVariants
@@ -1258,10 +1304,11 @@ library(lmerTest)
     write.csv(effects,   file.path(outFolder, paste0("effects_", lab, ".csv")), row.names = FALSE)
     if(!is.null(claimsNow)) write.csv(claimsNow, file.path(outFolder, paste0("dsep_claims_", lab, ".csv")), row.names = FALSE)
     write.csv(eqSummary, file.path(outFolder, paste0("equations_", lab, ".csv")), row.names = FALSE)
+    if(!is.null(r2Dec)) write.csv(r2Dec, file.path(outFolder, paste0("r2_decomposition_", lab, ".csv")), row.names = FALSE)
     write.csv(idCheck,   file.path(outFolder, paste0("identity_check_", lab, ".csv")), row.names = FALSE)
 
     results[[lab]] <- list(variant = variants[vNow, ], main = main, coefs = coefsNow, effects = effects, idCheck = idCheck,
-                           r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs, eqSummary = eqSummary,
+                           r2 = r2Table, r2Decomposition = r2Dec, cvPred = cvPred, pathEqs = pathEqs, eqSummary = eqSummary,
                            structure = list(activeIdentities = activeIdentities, nodeParents = nodeParents, nodeOrder = nodeOrder,
                                             exogenous = exogenous, edges = edgeList),
                            bootTotal = bootTotal, bootTotalStd = bootTotalStd, bootDirectStd = bootDirectStd, nBootFailed = nFail)
