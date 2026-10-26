@@ -1178,6 +1178,10 @@ library(lmerTest)
     bootTotal <- array(NA_real_, dim = c(max(nBootNow, 1), length(outcomes), length(nodeOrder)), dimnames = list(NULL, outcomes, nodeOrder))
     bootTotalStd <- bootTotal
     bootCoefs <- list()
+    # Every arrow (parent -> child) in the path model, for bootstrap intervals of the standardized direct effects (script 6)
+    edgeList <- do.call(rbind, lapply(names(nodeParents), function(v) if(length(nodeParents[[v]]) > 0) data.frame(from = nodeParents[[v]], to = v)))
+    edgeKeys <- paste(edgeList$from, edgeList$to, sep = " -> ")
+    bootDirectStd <- matrix(NA_real_, max(nBootNow, 1), nrow(edgeList), dimnames = list(NULL, edgeKeys))
     nFail <- 0
     fishIDs <- unique(d$Fish_ID)
     # One bootstrap sample (NULL if it fails to fit). Samples run in parallel with nCores > 1 (no progress messages then)
@@ -1192,6 +1196,7 @@ library(lmerTest)
       if(k %% 50 == 0) print(paste0("Bootstrap ", k, " / ", nBootNow))
       if(is.null(runNow)) return(NULL)
       list(total = runNow$totalE[outcomes, ], totalStd = runNow$totalStd[outcomes, ],
+           directStd = runNow$directStd[cbind(edgeList$to, edgeList$from)],
            coefs = setNames(runNow$coefs$estimate, paste(runNow$coefs$equation, runNow$coefs$term, sep = " : ")))
     }
     timeBoot <- Sys.time()
@@ -1204,6 +1209,7 @@ library(lmerTest)
       }
       bootTotal[k, , ]    <- bootRes[[k]]$total
       bootTotalStd[k, , ] <- bootRes[[k]]$totalStd
+      bootDirectStd[k, ]  <- bootRes[[k]]$directStd
       bootCoefs[[k]] <- bootRes[[k]]$coefs
     }
     if(nFail > 0) {
@@ -1250,8 +1256,10 @@ library(lmerTest)
     write.csv(idCheck,   file.path(outFolder, paste0("identity_check_", lab, ".csv")), row.names = FALSE)
 
     results[[lab]] <- list(variant = variants[vNow, ], main = main, coefs = coefsNow, effects = effects, idCheck = idCheck,
-                           r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs,
-                           bootTotal = bootTotal, bootTotalStd = bootTotalStd, nBootFailed = nFail)
+                           r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs, eqSummary = eqSummary,
+                           structure = list(activeIdentities = activeIdentities, nodeParents = nodeParents, nodeOrder = nodeOrder,
+                                            exogenous = exogenous, edges = edgeList),
+                           bootTotal = bootTotal, bootTotalStd = bootTotalStd, bootDirectStd = bootDirectStd, nBootFailed = nFail)
 
     rowNow <- data.frame(variants[vNow, c("label", "timeBasis", "widthModel", "flowVersion", "ktVersion", "structure", "pressure")],
                          n_rows = nrow(d), n_fish = length(unique(d$Fish_ID)), n_equations = length(pathEqs),
@@ -1400,6 +1408,8 @@ library(lmerTest)
   results$comparison <- comparison
   results$comparisonEquations <- eqLik
   results$settings <- list(datasetFile = datasetFile, variants = variants, structures = structures, randomTerm = randomTerm,
+                           outcomes = outcomes, effortIndicators = effortIndicators, constantNames = constantNames, ciLevel = ciLevel,
+                           splitEffort = splitEffort, refMedianVars = refMedianVars,
                            refType = refType, refFrac = refFrac, nBoot = nBoot, cvFolds = cvFolds,
                            standardizeIndicators = standardizeIndicators, checkEqs = checkEqs, identities = identityEqs)
   if(nCores > 1) parallel::stopCluster(cl)

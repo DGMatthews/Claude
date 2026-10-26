@@ -161,3 +161,12 @@ Script 3 compared kinematic and measured volume rates between videos. The peak v
 - `U_flow_ef_meas_tmax` ~ `Q_flow_meas_max / A_tmax` + ram + node distance
 
 It has extra responses, so it gets its own AIC group. Compare it by the cross-validated pressure R² and by the R² of the `Q_flow_meas_max` equation.
+
+## Exports (`6_SEM_exports.R`)
+
+Script 6 reads `SEM_results.rds` and writes three exports for one model (`exportModel`; default: the bootstrapped model), each explained by its own Markdown file:
+- **The path:** nodes, arrows with raw and standardized direct effects, and a Graphviz file. See `SEM_export_path.md`.
+- **The QTL trait sheets:** per strike and per fish, plus a variable list. See `SEM_export_QTL_traits.md`.
+- **Total effects on each outcome:** standardized across strikes and across fish means. See `SEM_export_total_effects.md`.
+
+Script 5 now also saves the path structure and bootstrap intervals for the standardized direct effects.
