@@ -112,3 +112,27 @@ Almost all the run time is refitting mixed models: about 2 refits per d-separati
 - `dsepVariants` limits the d-separation test to the models that need it; `character(0)` = none. It is the slowest part of a model without a bootstrap.
 - `nBoot <- 0` gives no confidence intervals and leaves everything else the same.
 - Bootstrapped models run last. `model_comparison_partial.csv` is saved after each model. The run time of each model and of the bootstrap is printed.
+
+## Testing the pressure decay
+
+The pressure correction p_mouth = p_node / g(s) uses Muller's g(s) = 1 − s/√(1+s²). That is the decay implied by the velocity profile (1 + s²)^-1.5.
+- **The velocity-profile version for any exponent:** the decay is g_k(s) = ∫_s^∞ (1+x²)^-k dx / ∫_0^∞ (1+x²)^-k dx. k = 1.5 gives Muller's g(s) exactly. With k = 0.61, g is 0.84 at s = 1 and 0.74 at s = 2; Muller's is 0.29 and 0.11.
+- **Script 3's check "Pressure decay estimated within videos":** within each video, it compares log(pressure at the fixed pressure-peak node / unsteady pressure predicted at the aperture from the kinematics, −ρ d(UR)/dt) with s. It reports a power exponent m, for (1+s²)^-m, and the best k for g_k(s). It also reports how much better each fits than Muller's decay.
+- **The second correction:** `pressureDecayAlt` in script 3 sets it. "velocityK" uses g_k with `mullerExponentAlt`; a number m uses a power decay.
+- **Carrying it through:** script 4 carries it as `Max_sub_pressure_K`, and script 5 compares it with `comparePressureK`, with and without the distance covariates.
+
+## The flow link
+
+Within videos, the kinematic flow prediction tracks the measured flow almost perfectly (~0.95). Across videos it barely correlates, even on the peak basis, where each variable is taken at its own maximum and the lag drops out (flow R² 0.08). So what's missing is each video's scale, not its timing. The PIV pressure is calculated from the same PIV velocity field, so measured flow and pressure share that scale.
+- **`compareFlowKinematic` (structure `flowKinematic`):** builds the pressure equation from the kinematic flow (V_buccal_vel / A) instead of the measured flow. Only predictors change, so it's in the same AIC group as the base model.
+- **`flowLatentCheck`:** prints correlations between the kinematic prediction and the two PIV flows, overall, between fish and within fish. It also fits a latent Flow with the three as indicators. Needs script 4's `mouthFrontCorrK` flow version.
+
+## PIV scale factor (laser-sheet centring)
+
+Your explanation: if the laser sheet misses the centre plane of the suction, that video's whole PIV field is smaller. Measured flow and pressure then share a per-video scale the kinematics can't predict.
+- **Script 3, `PIV_scale_<version>`:** each video's measured / kinematic flow, fitted through the origin over the strike at that video's best lag.
+- **Script 3, `PIV_scale_pressure`:** the same from the pressure trace, measured against the unsteady pressure predicted from the kinematics.
+- **The test of the explanation:** the flow and pressure estimates should correlate across videos. Script 3 prints their correlations, and their correlations with node distance.
+- **Script 4, `PIV_scale`:** the mouth-front estimate (`pivScaleVersion`), relative to its 90th percentile (`pivScaleRefQuantile`). Well-centred videos are about 1.
+- **Script 5, `comparePivCentered`:** divides the measured flow at tmax and the pressure by `PIV_scale`, then recalculates the fish-frame flow (ram is unchanged). It runs this for the base and `flowKinematic` structures.
+- **Caveat:** the scale is measured against the kinematic flow. So in the centred models, kinematics → flow is an assumption backed by the within-video agreement, not a result. The steps on either side are still tested.

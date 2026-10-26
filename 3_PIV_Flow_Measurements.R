@@ -30,6 +30,8 @@
       # so the unsteady pressure term d/dt(U R) falls with distance as g(s) = 1 - s / sqrt(1 + s^2), s = z / R
       # The 1/2 rho u^2 term falls as (1 + s^2)^-3 (3% of its aperture value at 1.5R), so at the node the pressure is almost all the
       # unsteady term, and p_aperture = p_node / g(s). Same distance limits as the velocity (maxZoverR, maxOffAxisOverR, node in front)
+    # Max_sub_pressure_corrK: the same peak corrected with a second decay (pressureDecayAlt): the decay implied by the velocity
+      # profile (1 + s^2)^-k with k = mullerExponentAlt, or a power (1 + s^2)^-m estimated from the pressure check
   # Flow is a speed (magnitude, m/s from the PIV, converted to mm/s), assumed to be along the strike axis like U_ram
   # U_flow_ff = U_flow_ef_meas + U_ram (fish frame: speed of water entering the mouth)
     # The measured flow is water moving toward the fish and ram is the fish moving toward the water, so the two add
@@ -89,6 +91,13 @@ rm(list=ls())
     # Optional second exponent: adds the versions staticK and mouthFrontCorrK, corrected with it (NA = not made)
     # e.g. set it to the estimate from the check and rerun, then compare in script 5 (compareMullerK)
   mullerExponentAlt <- 0.61  ### CHANGE  estimated within videos (k_within, ownLag: 0.61, 95% CI 0.52-0.70); the chosen version
+  # Second pressure correction (Max_sub_pressure_corrK), the pressure version to compare in scripts 4 and 5:
+    # "velocityK": the decay implied by the velocity profile U(s) = U(0) (1 + s^2)^-k, k = mullerExponentAlt. The potential is the
+      # integral of the velocity from s outward, so g_k(s) = int_s^inf (1 + x^2)^-k dx / int_0^inf (1 + x^2)^-k dx
+      # (k = 1.5 gives Muller's g(s) = 1 - s / sqrt(1 + s^2); needs k > 0.5)
+    # a number m: power decay (1 + s^2)^-m, e.g. m_within from the check "Pressure decay estimated within videos"
+    # NA: not made
+  pressureDecayAlt <- "velocityK"   ### CHANGE
   # Frames used for the exponent estimate: predicted earth-frame flow at least this share of its strike maximum
     # (log ratios of small values are mostly noise) and the node within maxZoverR / maxOffAxisOverR
   kFitMinPredFrac <- 0.3     ### CHANGE
@@ -188,6 +197,18 @@ rm(list=ls())
     }
 
 
+    # Decay of the unsteady pressure with distance s (multiples of R) for the velocity profile (1 + s^2)^-k (see pressureDecayAlt)
+      # Tabulated on a grid of s and interpolated, since the integrals are slow
+    gKtable <- function(k, sMax = 10, step = 0.01) {
+      if(is.na(k) || k <= 0.5) stop("The velocity-profile pressure decay needs an exponent above 0.5, not ", k)
+      sGrid <- seq(0, sMax, by = step)
+      fNow  <- function(x) (1 + x^2)^-k
+      total <- integrate(fNow, 0, Inf, rel.tol = 1e-8)$value
+      list(s = sGrid, g = sapply(sGrid, function(sNow) integrate(fNow, sNow, Inf, rel.tol = 1e-8)$value) / total)
+    }
+    gKat <- function(tab, sNow) approx(tab$s, tab$g, xout = pmax(sNow, 0), rule = 2)$y
+
+
     # Put a PIV trace onto the kinematic frames: value for PIV time t (ms) goes to kinematic frame round(t / 1000 * frameRate) + 1
     toKinFrames <- function(time_ms, value, nFrames, frameRate) {
       out <- rep(NA_real_, nFrames)
@@ -242,8 +263,12 @@ rm(list=ls())
 
   versions <- c("mouthFrontCorr", "mouthFront", "static", "staticRaw", if(!is.na(mullerExponentAlt)) c("staticK", "mouthFrontCorrK"))
 
-  # Frames for the Muller exponent check (filled in the loop): one data frame per video
+  # Frames for the Muller exponent check and the pressure decay check (filled in the loop): one data frame per video
   kFitRows <- list()
+  pFitRows <- list()
+
+  # Second pressure decay (pressureDecayAlt)
+  pressureDecayAltNow <- if(identical(pressureDecayAlt, "velocityK")) gKtable(mullerExponentAlt) else pressureDecayAlt
 
   # Output columns (one set per velocity version)
   flowCols <- c("U_flow_ef_meas_tmax", "U_flow_ef_meas_tmaxVel", "U_flow_ef_meas_acc_tmax", "U_flow_ef_meas_acc_tmaxVel",
@@ -257,6 +282,7 @@ rm(list=ls())
                          Pressure_tmax = NA_real_, Pressure_tmaxVel = NA_real_,
                          pressure_node_zR = NA_real_, velocity_node_zR = NA_real_,
                          pressure_node_offR = NA_real_, pressure_decay_g = NA_real_, Max_sub_pressure_corr = NA_real_,
+                         pressure_decay_gK = NA_real_, Max_sub_pressure_corrK = NA_real_,
                          static_node_zR_tmax = NA_real_, static_node_zR_tmaxVel = NA_real_,
                          static_node_offR_tmax = NA_real_, static_node_offR_tmaxVel = NA_real_,
                          static_Muller_factor_tmax = NA_real_, static_Muller_factor_tmaxVel = NA_real_,
@@ -281,6 +307,15 @@ rm(list=ls())
   for(colNow in as.vector(outer(outer(shapeMetrics, names(widthSuffixes), paste, sep = "_"), versions, paste, sep = "_"))) {
     flowData[[colNow]] <- NA_real_
   }
+
+  # PIV scale factor of each video: how large the measured flow is relative to the flow predicted from the kinematics
+    # (no-width buccal volume), through the origin over the strike frames at the video's best lag (predicted flow at least
+    # kFitMinPredFrac of its maximum). If the laser sheet misses the centre plane of the suction, the whole video's PIV field
+    # is scaled down, so the shape still matches (high within-video correlation) but the size doesn't (no between-video correlation)
+    # PIV_scale_<version>: from each velocity version's flow. PIV_scale_pressure: the same from the pressure trace (pressure-peak
+    # node against the unsteady pressure predicted from the kinematics), a separate estimate from the same PIV field
+    # If the scale is a property of the video (sheet position), the estimates from flow and from pressure agree across videos
+  for(colNow in c(paste0("PIV_scale_", versions), "PIV_scale_pressure")) flowData[[colNow]] <- NA_real_
 
   # Time series: one row per video, one column per kinematic frame
   longestVid <- max(kin$nFrames, na.rm = TRUE)
@@ -342,6 +377,8 @@ rm(list=ls())
       flowData$Max_sub_pressure[i]   <- pivNow$pressure_peak_Pa
       flowData$pressure_peak_time[i] <- pivNow$pressure_peak_time_ms / 1000
 
+      smP <- NULL
+      sPress <- NULL
       fileTraces <- file.path(pathRawTraces, paste0(pivNow$video, suffixPeakTraces))
       tracesNow  <- if(file.exists(fileTraces)) read.csv(fileTraces) else NULL
       if(is.null(tracesNow)) {
@@ -410,8 +447,17 @@ rm(list=ls())
           if(!is.na(sNow) && sNow >= 0 && sNow <= maxZoverR && dPress$offR[kPress] <= maxOffAxisOverR) {
             flowData$pressure_decay_g[i]      <- 1 - sNow / sqrt(1 + sNow^2)
             flowData$Max_sub_pressure_corr[i] <- flowData$Max_sub_pressure[i] / flowData$pressure_decay_g[i]
+            # Second decay (pressureDecayAlt)
+            if(is.list(pressureDecayAltNow)) {
+              flowData$pressure_decay_gK[i] <- gKat(pressureDecayAltNow, sNow)
+            } else if(!is.na(pressureDecayAltNow)) {
+              flowData$pressure_decay_gK[i] <- (1 + sNow^2)^-as.numeric(pressureDecayAltNow)
+            }
+            flowData$Max_sub_pressure_corrK[i] <- flowData$Max_sub_pressure[i] / flowData$pressure_decay_gK[i]
           }
         }
+        # Pressure node distance in every frame, for the pressure decay check
+        sPress <- nodeDist(pivNow$pressure_peak_x_px, pivNow$pressure_peak_y_px)
         if(!is.na(kVel) && kVel >= 1 && kVel <= nNow) {
           flowData$velocity_node_zR[i] <- nodeDist(pivNow$max_velocity_x_px, pivNow$max_velocity_y_px)$zR[kVel]
         }
@@ -508,6 +554,56 @@ rm(list=ls())
       censored <- kin$Tend_censored[i] %in% TRUE   # no real strike end: no strike means
 
 
+    ##### Frames for the pressure decay check (see "Pressure decay estimated within videos" at the end)
+      # Measured: the smoothed pressure trace at the fixed pressure-peak node. Predicted at the aperture from the kinematics:
+        # the unsteady term of Muller's model, p = -rho d(U R)/dt, with U = the no-width predicted flow in the earth frame
+        # (predicted fish-frame flow - ram) and R the gape radius. Suction frames only (both negative)
+      if(!is.null(smP) && !is.null(sPress) && length(strikeK) >= 10 && "U_flow_ff_predicted_noWidth_t" %in% names(kinTS)) {
+        uR <- (kinTS$U_flow_ff_predicted_noWidth_t[1, 1:nNow, vidNow] - U_ram_t) * R_t   # mm^2/s
+        dUR <- rep(NA_real_, nNow)
+        if(nNow >= 3) dUR[2:(nNow - 1)] <- (uR[3:nNow] - uR[1:(nNow - 2)]) / (timeNow[3:nNow] - timeNow[1:(nNow - 2)])
+        pPred <- -1000 * dUR * 1e-6   # Pa (rho = 1000 kg/m^3, mm^2/s^2 -> m^2/s^2)
+        pPredS <- pPred[strikeK]
+        if(sum(is.finite(pPredS) & pPredS < 0) >= 10) {
+          # Best lag (measured frame k + lag against predicted frame k), as for the flow
+          lagCorsP <- sapply(-maxShapeLag:maxShapeLag, function(lagNow) {
+            kMeas <- strikeK + lagNow
+            inNow <- kMeas >= 1 & kMeas <= nNow
+            mNow <- rep(NA_real_, length(strikeK))
+            mNow[inNow] <- smP$y[kMeas[inNow]]
+            okNow <- is.finite(pPredS) & is.finite(mNow)
+            if(sum(okNow) >= 10) cor(pPredS[okNow], mNow[okNow]) else NA_real_
+          })
+          lagOwnP <- if(any(is.finite(lagCorsP))) (-maxShapeLag:maxShapeLag)[which.max(lagCorsP)] else NA
+          bigP <- is.finite(pPredS) & pPredS < 0 & pPredS <= kFitMinPredFrac * min(pPredS, na.rm = TRUE)
+          # PIV scale factor from the pressure: measured / predicted, through the origin, at the best lag (suction frames)
+          if(!is.na(lagOwnP)) {
+            kMeas <- strikeK + lagOwnP
+            inNow <- kMeas >= 1 & kMeas <= nNow
+            pNodeS <- rep(NA_real_, length(strikeK))
+            pNodeS[inNow] <- smP$y[kMeas[inNow]]
+            okS <- bigP & is.finite(pNodeS)
+            if(sum(okS) >= 10) flowData$PIV_scale_pressure[i] <- sum(pPredS[okS] * pNodeS[okS]) / sum(pPredS[okS]^2)
+          }
+          for(lagType in c("lag0", "ownLag")) {
+            lagNow <- if(lagType == "lag0") 0 else lagOwnP
+            if(is.na(lagNow)) next
+            kMeas <- strikeK + lagNow
+            inNow <- kMeas >= 1 & kMeas <= nNow
+            pNodeNow <- sNowP <- offNowP <- rep(NA_real_, length(strikeK))
+            pNodeNow[inNow] <- smP$y[kMeas[inNow]]
+            sNowP[inNow]    <- sPress$zR[kMeas[inNow]]
+            offNowP[inNow]  <- sPress$offR[kMeas[inNow]]
+            okP <- bigP & is.finite(pNodeNow) & pNodeNow < 0 & is.finite(sNowP) & sNowP >= 0 & sNowP <= maxZoverR & offNowP <= maxOffAxisOverR
+            if(sum(okP) >= 10) {
+              pFitRows[[length(pFitRows) + 1]] <- data.frame(vidName = vidNow, lagType = lagType, s = sNowP[okP],
+                                                             y = log(pNodeNow[okP] / pPredS[okP]))
+            }
+          }
+        }
+      }
+
+
     ##### Outputs for each velocity version
 
       for(verNow in names(velRaw)) {
@@ -575,6 +671,19 @@ rm(list=ls())
               if(any(is.finite(lagCors[, kind]))) {
                 flowData[[paste0(kind, "Lag", colEnd)]][i]    <- lagNows[which.max(lagCors[, kind])]
                 flowData[[paste0(kind, "LagCor", colEnd)]][i] <- max(lagCors[, kind], na.rm = TRUE)
+              }
+            }
+
+            # PIV scale factor (no-width prediction): measured / predicted fish-frame flow, through the origin, at this video's best lag
+            if(wNm == "noWidth") {
+              lagS <- flowData[[paste0("shapeLag", colEnd)]][i]
+              if(!is.na(lagS)) {
+                kMeas <- strikeK + lagS
+                inNow <- kMeas >= 1 & kMeas <= nNow
+                measS <- rep(NA_real_, length(strikeK))
+                measS[inNow] <- smU$y[kMeas[inNow]] + U_ram_t[kMeas[inNow]]
+                okS <- is.finite(predNow) & is.finite(measS) & predNow >= kFitMinPredFrac * max(predNow, na.rm = TRUE)
+                if(sum(okS) >= 10) flowData[[paste0("PIV_scale_", verNow)]][i] <- sum(predNow[okS] * measS[okS]) / sum(predNow[okS]^2)
               }
             }
 
@@ -776,6 +885,67 @@ rm(list=ls())
   } else {
     print("--- Muller exponent check: no videos with enough frames")
   }
+
+  # Pressure decay estimated within videos
+    # The same idea as the Muller exponent check, for pressure: the pressure-peak node is fixed, but s = z / R changes during the strike,
+    # so log(p_node / p_pred) = a_video + log(h(s)) within each video, with p_pred the unsteady pressure at the aperture predicted
+    # from the kinematics (each video's own scale removed). Two forms of the decay h(s):
+      # m: a power, h = (1 + s^2)^-m (linear in log(1 + s^2), like the velocity check)
+      # k_g: the velocity-profile decay g_k(s) (see pressureDecayAlt), best k on a grid. Muller: k_g = 1.5; the velocity check gave ~0.6
+      # SSE_ratio: the error of each fitted form relative to Muller's g(s) (below 1 = fits the decay better than Muller's)
+    # m_between: the power slope across video means (the between-video comparison, as k_between for the flow)
+  pFit <- do.call(rbind, pFitRows)
+  if(!is.null(pFit) && nrow(pFit) > 0) {
+    print("--- Pressure decay estimated within videos (pressure-peak node vs. the unsteady pressure predicted from the kinematics)")
+    kGrid  <- seq(0.55, 3, by = 0.05)
+    gTabs  <- lapply(kGrid, gKtable, sMax = maxZoverR + 0.1)
+    print(t(sapply(c("lag0", "ownLag"), function(lagType) {
+      dP <- pFit[pFit$lagType == lagType, ]
+      dP$x <- log(1 + dP$s^2)
+      sdX <- tapply(dP$x, dP$vidName, sd)
+      dP  <- dP[dP$vidName %in% names(sdX)[sdX > 0.05], ]
+      nVidP <- length(unique(dP$vidName))
+      if(nVidP < 3) return(c(n_videos = nVidP, n_frames = nrow(dP), median_s = NA, m_within = NA, m_within_low = NA, m_within_high = NA,
+                             m_per_video_median = NA, k_g_within = NA, SSE_ratio_power = NA, SSE_ratio_k_g = NA, m_between = NA))
+      demean <- function(v) v - ave(v, dP$vidName)
+      xW <- demean(dP$x)
+      yW <- demean(dP$y)
+      mWithin <- -sum(xW * yW) / sum(xW^2)
+      resW <- yW + mWithin * xW
+      seW  <- sqrt(sum(tapply(xW * resW, dP$vidName, sum)^2)) / sum(xW^2)
+      mVid <- vapply(split(dP, dP$vidName), function(v) -coef(lm(y ~ x, data = v))[["x"]], numeric(1))
+      # Velocity-profile decay: SSE of y - log(g_k(s)) after removing each video's mean, for each k on the grid
+      sseK <- sapply(gTabs, function(tab) sum(demean(dP$y - log(gKat(tab, dP$s)))^2))
+      sseMuller <- sum(demean(dP$y - log(1 - dP$s / sqrt(1 + dP$s^2)))^2)
+      xB <- tapply(dP$x, dP$vidName, mean)
+      yB <- tapply(dP$y, dP$vidName, mean)
+      c(n_videos = nVidP, n_frames = nrow(dP), median_s = median(dP$s),
+        m_within = mWithin, m_within_low = mWithin - 1.96 * seW, m_within_high = mWithin + 1.96 * seW, m_per_video_median = median(mVid),
+        k_g_within = kGrid[which.min(sseK)], SSE_ratio_power = sum(resW^2) / sseMuller, SSE_ratio_k_g = min(sseK) / sseMuller,
+        m_between = -coef(lm(yB ~ xB))[["xB"]])
+    })), digits = 3)
+    print("pressureDecayAlt: 'velocityK' uses g_k with k = mullerExponentAlt; or set it to m_within (ownLag) for the power decay. Then rerun scripts 3-5")
+    print(paste0("Current second decay (pressureDecayAlt = ", if(is.list(pressureDecayAltNow)) paste0("velocityK, k = ", mullerExponentAlt) else pressureDecayAlt,
+                 "): correction factor 1 / h(s)"))
+    print(summary(1 / flowData$pressure_decay_gK))
+    print(summary(flowData$Max_sub_pressure_corrK))
+  } else {
+    print("--- Pressure decay check: no videos with enough frames")
+  }
+
+  # PIV scale factors (measured / kinematic prediction, per video; see PIV_scale above)
+    # Sheet-position explanation: the estimates from different nodes and from the pressure correlate across videos (same video, same scale)
+    # The distance columns show how much of the scale goes with how far the measurement nodes were from the mouth
+  scaleCols <- c(paste0("PIV_scale_", versions), "PIV_scale_pressure")
+  print("--- PIV scale factor per video (measured / predicted from the kinematics; 1 = the size the kinematics predict)")
+  print(summary(flowData[scaleCols]))
+  logScales <- as.data.frame(lapply(flowData[scaleCols], function(v) ifelse(is.finite(v) & v > 0, log(v), NA)))
+  logScales$pressure_node_zR <- flowData$pressure_node_zR
+  logScales$static_node_zR_tmaxVel <- flowData$static_node_zR_tmaxVel
+  print("Correlations of log(scale) between estimates, and with the node distances (pairwise videos):")
+  print(round(cor(logScales, use = "pairwise.complete.obs"), 2))
+  print("Videos with each pair:")
+  print(crossprod(!is.na(as.matrix(logScales))))
 
   # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;
     # above 1 when frames are missing, since the decomposition uses the full duration T)
