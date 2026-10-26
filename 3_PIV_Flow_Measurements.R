@@ -19,6 +19,7 @@
                      # Only frames where the node is close to the mouth are used (maxZoverR, maxOffAxisOverR), since the correction grows quickly with distance
                      # (the same limits apply to _mouthFrontCorr)
     # _staticRaw:  the fixed-node velocity without the correction (reference)
+    # _staticK, _mouthFrontCorrK: the same corrections with a different decay exponent (mullerExponentAlt), only when it is set
   # The version chosen in mainVersion is also saved without a suffix, under the names the SEM uses (U_flow_ef_meas_tmax, U_flow_ff_mean, ...)
 
   # Videos included: those in final_results_consistency_filtered.xlsx (the kinematics script reads tmax, tmaxVel and the peak values from it)
@@ -81,6 +82,16 @@ rm(list=ls())
   # Muller correction of the static node: only frames where the node is within these distances of the mouth (multiples of the gape radius R)
   maxZoverR       <- 2     ### CHANGE  along the strike axis. The correction factor is 2.8 at z = R, 5.9 at 1.5R, 11 at 2R (was 1.5)
   maxOffAxisOverR <- 1     ### CHANGE  sideways from the strike axis (Muller's model is for points on the axis)
+
+  # Decay exponent of the correction: U_mouth = U_node * (1 + (z/R)^2)^k. Muller's model (ideal circular aperture, on its axis): k = 1.5
+    # The check "Muller exponent estimated within videos" (end of the script) estimates k from the data
+  mullerExponent    <- 1.5   ### CHECK
+    # Optional second exponent: adds the versions staticK and mouthFrontCorrK, corrected with it (NA = not made)
+    # e.g. set it to the estimate from the check and rerun, then compare in script 5 (compareMullerK)
+  mullerExponentAlt <- NA    ### CHANGE
+  # Frames used for the exponent estimate: predicted earth-frame flow at least this share of its strike maximum
+    # (log ratios of small values are mostly noise) and the node within maxZoverR / maxOffAxisOverR
+  kFitMinPredFrac <- 0.3     ### CHANGE
 
   # Cleaning and smoothing, as in the kinematics script
     # Hampel filter: points more than hampelThreshold MADs from the median of a (2 * hampelHalfWindow + 1)-frame window are set to NA
@@ -229,7 +240,10 @@ rm(list=ls())
   nVids <- nrow(kin)
   skippedFlow <- data.frame(vidName = character(0), section = character(0), reason = character(0))
 
-  versions <- c("mouthFrontCorr", "mouthFront", "static", "staticRaw")
+  versions <- c("mouthFrontCorr", "mouthFront", "static", "staticRaw", if(!is.na(mullerExponentAlt)) c("staticK", "mouthFrontCorrK"))
+
+  # Frames for the Muller exponent check (filled in the loop): one data frame per video
+  kFitRows <- list()
 
   # Output columns (one set per velocity version)
   flowCols <- c("U_flow_ef_meas_tmax", "U_flow_ef_meas_tmaxVel", "U_flow_ef_meas_acc_tmax", "U_flow_ef_meas_acc_tmaxVel",
@@ -410,7 +424,7 @@ rm(list=ls())
           if(!is.na(kNow) && kNow >= 1 && kNow <= nNow) {
             flowData[[paste0("static_node_zR_", tNm)]][i]        <- dStat$zR[kNow]
             flowData[[paste0("static_node_offR_", tNm)]][i]      <- dStat$offR[kNow]
-            flowData[[paste0("static_Muller_factor_", tNm)]][i] <- (dStat$zR[kNow]^2 + 1)^1.5
+            flowData[[paste0("static_Muller_factor_", tNm)]][i] <- (dStat$zR[kNow]^2 + 1)^mullerExponent
           }
         }
       }
@@ -418,6 +432,7 @@ rm(list=ls())
 
     ##### Velocity versions (mm/s, one value per kinematic frame)
       velRaw <- list()
+      zStatic <- NULL
 
       # Fixed node
       if(!is.null(tracesNow)) {
@@ -426,10 +441,12 @@ rm(list=ls())
         # Corrected to the aperture (needs the mouth landmarks)
         if(marksOK) {
           dNow <- nodeDist(pivNow$max_velocity_x_px, pivNow$max_velocity_y_px)
-          mullerFactor <- (dNow$zR^2 + 1)^1.5          # (z^2 + R^2)^1.5 / R^3, with z in units of R
+          mullerFactor <- (dNow$zR^2 + 1)^mullerExponent   # (z^2 + R^2)^1.5 / R^3, with z in units of R (k = 1.5)
           useNow <- dNow$zR >= 0 & dNow$zR <= maxZoverR & dNow$offR <= maxOffAxisOverR
           mullerFactor[!(useNow %in% TRUE)] <- NA
           velRaw$static <- velRaw$staticRaw * mullerFactor
+          if(!is.na(mullerExponentAlt)) velRaw$staticK <- velRaw$staticRaw * mullerFactor^(mullerExponentAlt / mullerExponent)
+          zStatic <- ifelse(useNow %in% TRUE, dNow$zR, NA)   # for the exponent check
           flowTS$Muller_factor_t[i, 1:nNow] <- mullerFactor
 
           # Videos with no strike (no Tstart / Tend) have no strike frames
@@ -458,10 +475,11 @@ rm(list=ls())
           frontX <- smoothTrace(toKinFrames(frontNow$time_ms, frontNow[[frontXcol]], nNow, frameRate), timeNow, madFloorLandmark, lambdaRefFrontPos)$y
           frontY <- smoothTrace(toKinFrames(frontNow$time_ms, frontNow[[frontYcol]], nNow, frameRate), timeNow, madFloorLandmark, lambdaRefFrontPos)$y
           dFront <- nodeDist(frontX, frontY)
-          frontFactor <- (pmax(dFront$zR, 0)^2 + 1)^1.5   # 1 at or behind the aperture plane
+          frontFactor <- (pmax(dFront$zR, 0)^2 + 1)^mullerExponent   # 1 at or behind the aperture plane
           useFront <- dFront$zR <= maxZoverR & dFront$offR <= maxOffAxisOverR
           frontFactor[!(useFront %in% TRUE)] <- NA
           velRaw$mouthFrontCorr <- velRaw$mouthFront * frontFactor
+          if(!is.na(mullerExponentAlt)) velRaw$mouthFrontCorrK <- velRaw$mouthFront * frontFactor^(mullerExponentAlt / mullerExponent)
           flowTS$Muller_factor_front_t[i, 1:nNow] <- frontFactor
 
           if(!is.na(kin$startFrame[i]) && !is.na(kin$endFrame[i])) {
@@ -557,6 +575,30 @@ rm(list=ls())
               if(any(is.finite(lagCors[, kind]))) {
                 flowData[[paste0(kind, "Lag", colEnd)]][i]    <- lagNows[which.max(lagCors[, kind])]
                 flowData[[paste0(kind, "LagCor", colEnd)]][i] <- max(lagCors[, kind], na.rm = TRUE)
+              }
+            }
+
+            # Frames for the Muller exponent check (uncorrected static node, no-width prediction):
+              # log(measured at the node / predicted at the mouth) against log(1 + z^2), both earth frame
+              # (the suction flow decays with distance; ram is the same everywhere, so it comes off the prediction)
+              # At lag 0 and at this video's best lag (measured frame k + lag against predicted frame k; z when measured)
+            if(verNow == "staticRaw" && wNm == "noWidth" && !is.null(zStatic)) {
+              predEF <- predNow - U_ram_t[strikeK]
+              bigPred <- is.finite(predEF) & predEF >= kFitMinPredFrac * max(predEF, na.rm = TRUE)
+              lagOwn <- flowData[[paste0("shapeLag", colEnd)]][i]
+              for(lagType in c("lag0", "ownLag")) {
+                lagNow <- if(lagType == "lag0") 0 else lagOwn
+                if(is.na(lagNow)) next
+                kMeas <- strikeK + lagNow
+                inNow <- kMeas >= 1 & kMeas <= nNow
+                measNow <- zNow <- rep(NA_real_, length(strikeK))
+                measNow[inNow] <- smU$y[kMeas[inNow]]
+                zNow[inNow]    <- zStatic[kMeas[inNow]]
+                okK <- bigPred & is.finite(measNow) & measNow > 0 & is.finite(zNow)
+                if(sum(okK) >= 10) {
+                  kFitRows[[length(kFitRows) + 1]] <- data.frame(vidName = vidNow, lagType = lagType, x = log(1 + zNow[okK]^2),
+                                                                 y = log(measNow[okK] / predEF[okK]), z = zNow[okK])
+                }
               }
             }
           }
@@ -694,6 +736,45 @@ rm(list=ls())
           median_ratio = median(getNow("Ratio"), na.rm = TRUE))
       }), digits = 3)
     }
+  }
+
+  # Muller exponent estimated within videos
+    # Model: U_node(t) = U_mouth(t) * (1 + z(t)^2)^-k, with z in multiples of R. U_mouth is the flow predicted from the kinematics
+    # (no-width buccal volume, earth frame), up to a scale that differs between videos (calibration, laser plane, the volume model)
+    # The static node is fixed but R and the mouth position change during the strike, so z changes within each video:
+    # log(U_node / U_pred) = a_video - k log(1 + z^2). The within-video slope (each video's own scale removed) estimates k
+    # without using differences between videos, so it doesn't build the between-video prediction into the correction
+    # k_within ~ 1.5: Muller's correction is right. Clearly below 1.5: the flow decays more slowly and far nodes are over-corrected
+    # k_between: the same slope across video means. If it differs from k_within, the scale of the measured flow relative to the
+    # kinematics changes with how far the node was (e.g. the node placed further out in blurred, powerful strikes)
+  kFit <- do.call(rbind, kFitRows)
+  if(!is.null(kFit) && nrow(kFit) > 0) {
+    print("--- Muller exponent k estimated within videos (Muller: 1.5). Uncorrected static node vs. no-width prediction")
+    print(t(sapply(c("lag0", "ownLag"), function(lagType) {
+      dK <- kFit[kFit$lagType == lagType, ]
+      # Videos with enough spread in z to estimate a slope
+      sdX  <- tapply(dK$x, dK$vidName, sd)
+      dK   <- dK[dK$vidName %in% names(sdX)[sdX > 0.05], ]
+      if(length(unique(dK$vidName)) < 3) return(c(n_videos = length(unique(dK$vidName)), n_frames = nrow(dK), median_z = NA, k_within = NA,
+                                                   k_within_se = NA, k_within_low = NA, k_within_high = NA, k_per_video_median = NA,
+                                                   k_per_video_q25 = NA, k_per_video_q75 = NA, k_between = NA, cor_between = NA))
+      xW <- dK$x - ave(dK$x, dK$vidName)
+      yW <- dK$y - ave(dK$y, dK$vidName)
+      kWithin <- -sum(xW * yW) / sum(xW^2)
+      # Standard error with videos as clusters (frames within a video aren't independent)
+      resW <- yW + kWithin * xW
+      seW  <- sqrt(sum(tapply(xW * resW, dK$vidName, sum)^2)) / sum(xW^2)
+      kVid <- vapply(split(dK, dK$vidName), function(v) -coef(lm(y ~ x, data = v))[["x"]], numeric(1))
+      xB <- tapply(dK$x, dK$vidName, mean)
+      yB <- tapply(dK$y, dK$vidName, mean)
+      c(n_videos = length(unique(dK$vidName)), n_frames = nrow(dK), median_z = median(dK$z),
+        k_within = kWithin, k_within_se = seW, k_within_low = kWithin - 1.96 * seW, k_within_high = kWithin + 1.96 * seW,
+        k_per_video_median = median(kVid), k_per_video_q25 = unname(quantile(kVid, 0.25)), k_per_video_q75 = unname(quantile(kVid, 0.75)),
+        k_between = -coef(lm(yB ~ xB))[["xB"]], cor_between = cor(xB, yB))
+    })), digits = 3)
+    print("Set mullerExponentAlt to k_within (ownLag) and rerun to make the staticK / mouthFrontCorrK versions for scripts 4 and 5")
+  } else {
+    print("--- Muller exponent check: no videos with enough frames")
   }
 
   # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;
