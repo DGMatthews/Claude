@@ -234,7 +234,7 @@ rm(list=ls())
   # Output columns (one set per velocity version)
   flowCols <- c("U_flow_ef_meas_tmax", "U_flow_ef_meas_tmaxVel", "U_flow_ef_meas_acc_tmax", "U_flow_ef_meas_acc_tmaxVel",
                 "U_flow_ff_tmax", "U_flow_ff_tmaxVel", "U_flow_ff_acc_tmax", "U_flow_ff_acc_tmaxVel",
-                "U_flow_ef_meas_Max", "U_flow_ef_meas_mean", "U_flow_ff_mean", "U_flow_ef_meas_mean_bigGape", "U_flow_ff_mean_bigGape",
+                "U_flow_ef_meas_Max", "U_flow_ef_meas_acc_Max", "U_flow_ef_meas_mean", "U_flow_ff_mean", "U_flow_ef_meas_mean_bigGape", "U_flow_ff_mean_bigGape",
                 "Cov_R_Uflowefmeas", "Cov_R_Uflowff", "Cov_A_Uflowff",
                 "Total_ingested_volume", "Total_ingested_volume_direct", "U_flow_strike_frac")
 
@@ -541,6 +541,8 @@ rm(list=ls())
           }
           if(any(!is.na(uS))) {
             resNow["U_flow_ef_meas_Max"] <- max(uS, na.rm = TRUE)
+            # Largest acceleration over the strike (for the "peak" time basis in scripts 4 and 5)
+            if(any(!is.na(smU$dy[strikeK]))) resNow["U_flow_ef_meas_acc_Max"] <- max(smU$dy[strikeK], na.rm = TRUE)
           }
 
           # Means, covariances and volume: only with enough frames, and a real strike end
