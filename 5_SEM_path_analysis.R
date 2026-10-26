@@ -63,8 +63,13 @@ library(lmerTest)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
   # Chosen model: tmaxVel (best cross-validated R^2 of pressure), static KT (lower AIC than dynamic at both time bases),
     # and flow corrected with the decay exponent estimated in script 3 (k = 0.61, flow version "staticK+mouthFrontCorrK")
-  variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
-                          ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   ### CHANGE
+  # Time comparison (with the k = 0.61 pressure and the pressure nodes kept in the whole search area): tmaxVel vs. peak, each with
+    # the flow from buccal volume rate / gape area (base), as separate additive terms (flowAdditive), and pressure from the
+    # kinematic flow (flowKinematic)
+  variants <- expand.grid(timeBasis = c("tmaxVel", "peak"), widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
+                          ktVersion = "static", structure = c("base", "flowAdditive", "flowKinematic"), stringsAsFactors = FALSE)   ### CHANGE
+  # variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
+  #                         ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   # the single chosen model
   # variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
   #                         ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   # the earlier comparison
 
@@ -97,10 +102,10 @@ library(lmerTest)
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
-  compareFlowKinematic <- TRUE  ### CHANGE
+  compareFlowKinematic <- FALSE ### CHANGE  (in variants above for now)
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePressureK   <- FALSE   ### CHANGE  (script 4's pressureVersion "correctedK" already makes it the main pressure; TRUE only adds a duplicate)
-  comparePivCentered <- TRUE    ### CHANGE
+  comparePivCentered <- FALSE   ### CHANGE  (tried: centring made pressure unpredictable, cross-validated R^2 ~0)
   comparePeak        <- FALSE   ### CHANGE
   compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK", ktVersion = "static", structure = "base")   ### CHANGE
   # Pressure version of each model: "corrected" (Max_sub_pressure from script 4), "K" (Max_sub_pressure_K),
@@ -157,6 +162,10 @@ library(lmerTest)
                        # The PIV pressure is calculated from the same PIV velocity field as the measured flow, so the two share each video's
                        # measurement scale. If pressure is predicted as well or better from the kinematic flow, the measured-flow link was
                        # carrying that shared PIV scale rather than the biology. The measured-flow equations stay (as outcomes)
+                     # Measured flow from the buccal volume rate and the gape area as separate additive terms, instead of their ratio
+                       # (V_buccal_vel / A blows up while the gape is still small; the ratio is only physical near peak flow)
+                     flowAdditive = c(U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + V_buccal_vel_tmax + A_tmax + static_node_zR_tmax",
+                                      U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + V_buccal_acc_tmax + V_buccal_vel_tmax + A_tmax + A_vel_tmax + static_node_zR_tmax"),
                      flowKinematic = c(Max_sub_pressure = paste("I(-0.5 * rho * (V_buccal_vel_tmax / A_tmax / 1000)^2) + I(0.5 * rho * (U_ram_tmax / 1000)^2)",
                                                                 "+ I(rho * R_tmax * (V_buccal_acc_tmax / A_tmax - V_buccal_vel_tmax * A_vel_tmax / A_tmax^2) / 1e6)",
                                                                 "+ I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
@@ -219,7 +228,7 @@ library(lmerTest)
 
   # Bootstrap
     # 0 = no bootstrap (no confidence intervals; everything else is the same)
-  nBoot  <- 1000   ### CHANGE  1000+ for the final run (50 while the structure is still changing)
+  nBoot  <- 200    ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
 
@@ -1011,7 +1020,12 @@ library(lmerTest)
       flowInd <- data.frame(Fish_ID = d$Fish_ID, kinematic = d$V_buccal_vel_tmax / d$A_tmax, PIV_static = d$U_flow_ff_tmax)
       mfKey <- paste(variants$timeBasis[vNow], variants$widthModel[vNow], "mouthFrontCorrK", sep = "|")   # mouth-front flow, k = mullerExponentAlt
       if(mfKey %in% names(allDatasets)) {
-        flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ff_tmax[match(d$vidName, allDatasets[[mfKey]]$vidName)]
+        mfRows <- match(d$vidName, allDatasets[[mfKey]]$vidName)
+        flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ff_tmax[mfRows]
+        # Centred models: centre the mouth-front flow the same way as the static flow (earth-frame part / PIV_scale, + ram)
+        if(variants$pressure[vNow] %in% c("centered", "centeredK")) {
+          flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ef_meas_tmax[mfRows] / d$PIV_scale + d$U_ram_tmax
+        }
       }
       indNames <- setdiff(names(flowInd), "Fish_ID")
       flowInd[indNames] <- lapply(flowInd[indNames], function(v) ifelse(is.finite(v), v, NA))

@@ -49,14 +49,11 @@ rm(list=ls())
 ##############
 
   # PIV output
-  # PIV results: the pipeline run with the pressure search in the jaw triangle (+ 0.25 x peak gape in front). Not the earlier
-    # "(velocity-anchored)(0.4 pressure shape)" run, whose pressure search went further from the mouth
-  pathPIVroot      <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (corr0.4, triangle pressure region, padded+edge20)'   ### CHANGE
-  pathPIVfinal     <- file.path(pathPIVroot, 'Final export')
+  pathPIVfinal     <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Final export'
   pivFilteredFile  <- file.path(pathPIVfinal, 'final_results_consistency_filtered.xlsx')   # decides which videos are included (same file the kinematics uses for tmax)
   pivResultsFile   <- file.path(pathPIVfinal, 'final_results_all_passed.xlsx')             # only used for the peak node positions (px)
   pathRawTraces    <- file.path(pathPIVfinal, 'Raw traces')
-  pathMouthFront   <- file.path(pathPIVroot, 'Mouth front velocity traces', 'Traces')   ### CHECK  that this run has the mouth-front traces here
+  pathMouthFront   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Mouth front velocity traces/Traces'
   pathMouthMarks   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/Mouth Landmarks'
 
   # File name endings (after the PIV video name, e.g. "IL5-PIV_ACxTRC_2024.01.21_F2_A14.46_E05_000000")   ### CHECK once the file lists are in
@@ -90,9 +87,15 @@ rm(list=ls())
   # Pressure nodes behind the aperture plane (z < 0: inside the mouth, e.g. in the jaw triangle the PIV search includes)
     # "uncorrected": kept, with no correction (factor 1, as the mouth-front velocity). "exclude": no corrected pressure (the old rule)
   pressureBehindAperture <- "uncorrected"   ### CHANGE
+  # Distance limits for the pressure correction (multiples of R in the pressure-peak frame). The PIV search area already bounds
+    # where the node can be (jaw triangle + a box one peak gape deep in front of the jaw tips), but R in the peak frame is often
+    # much smaller than the peak gape (pressure peaks early), so nodes at the front of the box are several R away, and nodes in
+    # its corners about 1R off the axis. Inf = correct every node the search found (the k = 0.61 decay is mild: x1.35 at 2R)
+  maxZoverRPressure       <- Inf   ### CHANGE  (was maxZoverR = 2)
+  maxOffAxisOverRPressure <- Inf   ### CHANGE  (was maxOffAxisOverR = 1)
   # Pressure search rule of the PIV pipeline, for the check "Where the pressure nodes were": inside the jaw triangle (jaw tips and
     # joint) or up to this share of the peak gape (jaw-tip distance) in front of it
-  pressureSearchFrontFrac <- 0.25   ### CHECK
+  pressureSearchFrontFrac <- 1      ### CHECK  the box in front of the jaw tips is one peak gape deep
 
   # Decay exponent of the correction: U_mouth = U_node * (1 + (z/R)^2)^k. Muller's model (ideal circular aperture, on its axis): k = 1.5
     # The check "Muller exponent estimated within videos" (end of the script) estimates k from the data
@@ -328,6 +331,15 @@ rm(list=ls())
     # If the scale is a property of the video (sheet position), the estimates from flow and from pressure agree across videos
   for(colNow in c(paste0("PIV_scale_", versions), "PIV_scale_pressure")) flowData[[colNow]] <- NA_real_
 
+  # Between-video comparison of volume rates (no division by the gape area, no time alignment needed):
+    # Qmax: the largest volume rate over the strike (mm^3/s). Predicted = max of V_buccal' (no-width), measured = max of A x fish-frame flow
+    # Vint: the volume over the strike (mm^3), the integral of the same rates
+    # If these agree across videos while the flow speeds at tmaxVel don't, the speed at one frame is what's noisy (the gape-area
+    # division and the lag), and the SEM's flow node can be built on volume rates instead
+  flowData$QmaxPred <- NA_real_
+  flowData$VintPred <- NA_real_
+  for(colNow in as.vector(outer(c("QmaxMeas_", "VintMeas_"), versions, paste0))) flowData[[colNow]] <- NA_real_
+
   # Time series: one row per video, one column per kinematic frame
   longestVid <- max(kin$nFrames, na.rm = TRUE)
   tsNames <- c("Pressure_t", "Muller_factor_t", "Muller_factor_front_t", paste0("U_flow_ef_meas_", versions, "_t"))
@@ -474,8 +486,8 @@ rm(list=ls())
           behindNow <- !is.na(sNow) && sNow < 0 && pressureBehindAperture == "uncorrected"
           if(behindNow) sNow <- 0
           flowData$pressure_excluded_reason[i] <- if(is.na(sNow)) "no distance (landmarks)" else if(sNow < 0) "behind the aperture" else
-            if(sNow > maxZoverR) "beyond maxZoverR" else if(!(dPress$offR[kPress] <= maxOffAxisOverR) %in% TRUE) "beyond maxOffAxisOverR" else "kept"
-          if(!is.na(sNow) && sNow >= 0 && sNow <= maxZoverR && (behindNow || dPress$offR[kPress] <= maxOffAxisOverR)) {
+            if(sNow > maxZoverRPressure) "beyond maxZoverRPressure" else if(!(dPress$offR[kPress] <= maxOffAxisOverRPressure) %in% TRUE) "beyond maxOffAxisOverRPressure" else "kept"
+          if(!is.na(sNow) && sNow >= 0 && sNow <= maxZoverRPressure && (behindNow || dPress$offR[kPress] <= maxOffAxisOverRPressure)) {
             flowData$pressure_decay_g[i]      <- 1 - sNow / sqrt(1 + sNow^2)
             flowData$Max_sub_pressure_corr[i] <- flowData$Max_sub_pressure[i] / flowData$pressure_decay_g[i]
             # Second decay (pressureDecayAlt)
@@ -702,6 +714,20 @@ rm(list=ls())
               if(any(is.finite(lagCors[, kind]))) {
                 flowData[[paste0(kind, "Lag", colEnd)]][i]    <- lagNows[which.max(lagCors[, kind])]
                 flowData[[paste0(kind, "LagCor", colEnd)]][i] <- max(lagCors[, kind], na.rm = TRUE)
+              }
+            }
+
+            # Peak and integrated volume rates (see QmaxPred above), no-width prediction
+            if(wNm == "noWidth") {
+              tStrike <- timeNow[strikeK]
+              intOf <- function(q) { okI <- is.finite(q); if(sum(okI) < 10) NA_real_ else sum(diff(tStrike[okI]) * (head(q[okI], -1) + tail(q[okI], -1)) / 2) }
+              if(any(is.finite(predQ))) {
+                flowData$QmaxPred[i] <- max(predQ, na.rm = TRUE)
+                flowData$VintPred[i] <- intOf(predQ)
+              }
+              if(any(is.finite(measQ))) {
+                flowData[[paste0("QmaxMeas_", verNow)]][i] <- max(measQ, na.rm = TRUE)
+                flowData[[paste0("VintMeas_", verNow)]][i] <- intOf(measQ)
               }
             }
 
@@ -982,6 +1008,25 @@ rm(list=ls())
   } else {
     print("--- Pressure decay check: no videos with enough frames")
   }
+
+  # Between-video agreement of volume rates (see QmaxPred): predicted from the kinematics vs. measured, all videos and fish means
+    # Log scale (sizes vary several-fold). Compare with the flow speeds at tmaxVel (kinematic vs. PIV ~0.1-0.2)
+  print("--- Kinematic vs. measured volume rates between videos (log correlations): peak volume rate (Qmax) and volume over the strike (Vint)")
+  logPos <- function(v) ifelse(is.finite(v) & v > 0, log(v), NA)
+  fishOf <- kin$Unique.ID
+  print(t(sapply(versions, function(v) {
+    qP <- logPos(flowData$QmaxPred); qM <- logPos(flowData[[paste0("QmaxMeas_", v)]])
+    vP <- logPos(flowData$VintPred); vM <- logPos(flowData[[paste0("VintMeas_", v)]])
+    okQ <- is.finite(qP) & is.finite(qM)
+    okV <- is.finite(vP) & is.finite(vM)
+    fishCor <- function(a, b, ok) {
+      if(sum(ok) < 10) return(NA_real_)
+      am <- tapply(a[ok], fishOf[ok], mean); bm <- tapply(b[ok], fishOf[ok], mean)
+      if(length(am) < 10) NA_real_ else cor(am, bm)
+    }
+    c(n_Qmax = sum(okQ), cor_Qmax = if(sum(okQ) > 10) cor(qP[okQ], qM[okQ]) else NA, cor_Qmax_fishMeans = fishCor(qP, qM, okQ),
+      n_Vint = sum(okV), cor_Vint = if(sum(okV) > 10) cor(vP[okV], vM[okV]) else NA, cor_Vint_fishMeans = fishCor(vP, vM, okV))
+  })), digits = 3)
 
   # PIV scale factors (measured / kinematic prediction, per video; see PIV_scale above)
     # Sheet-position explanation: the estimates from different nodes and from the pressure correlate across videos (same video, same scale)
