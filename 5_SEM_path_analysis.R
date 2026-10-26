@@ -63,27 +63,29 @@ library(lmerTest)
   variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+mouthFrontCorr",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
 
-  # Compare with the uncorrected static flow throughout: the same models with staticRaw, plus staticRaw with the node's distance
-    # from the mouth as a covariate (structure nodeDist, below)
-  compareStaticRaw <- FALSE   ### CHANGE  TRUE adds these models
-  if(compareStaticRaw) {
-    variants <- rbind(variants,
-                      transform(variants, flowVersion = "staticRaw"),
-                      data.frame(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "staticRaw",
-                                 ktVersion = "dynamic", structure = "nodeDist"))
-  }
+  # Optional comparisons (each adds models to variants)
+    # compareStaticRaw:   the same models with the uncorrected static flow (staticRaw) throughout
+    # compareDistance:    tmaxVel model without the node-distance covariates (structure noDist), to see how much they add
+    # compareWidthModels: tmaxVel model with the other buccal width models (noRetract, noWidth). Same responses, so compared by AIC
+  compareStaticRaw   <- FALSE   ### CHANGE
+  compareDistance    <- FALSE   ### CHANGE
+  compareWidthModels <- FALSE   ### CHANGE
+  baseVel <- data.frame(timeBasis = "tmaxVel", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "dynamic", structure = "base")
+  if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
+  if(compareDistance)    variants <- rbind(variants, transform(baseVel, structure = "noDist"))
+  if(compareWidthModels) variants <- rbind(variants, transform(baseVel[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
   # Alternative equation sets (different path structures), used by name in variants$structure
     # Each is a named character vector: name = response, value = new right-hand side (NA removes that equation)
-      # A value starting with "+" is added to the existing right-hand side instead of replacing it
+      # A value starting with "+" is added to the existing right-hand side instead of replacing it; "-" removes that term
     # e.g. structures$effortT <- c(T = "Effort_score") would make T a response of Effort (see the notes on T)
   structures <- list(base = character(0),
-                     # Distance of the static node from the mouth (multiples of R) in the instantaneous measured-flow equations,
-                       # so the uncorrected flow can be compared after allowing for where it was measured
-                     nodeDist = c(U_flow_ef_meas_tmax     = "+ static_node_zR_tmax",
-                                  U_flow_ef_meas_acc_tmax = "+ static_node_zR_tmax"))   ### CHANGE
+                     # Without the node-distance covariates (they are in the base equations)
+                     noDist = c(Max_sub_pressure        = "- pressure_node_zR",
+                                U_flow_ef_meas_tmax     = "- static_node_zR_tmax",
+                                U_flow_ef_meas_acc_tmax = "- static_node_zR_tmax"))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
@@ -140,7 +142,8 @@ library(lmerTest)
       # If the physics holds exactly every coefficient is 1
     Max_sub_pressure = paste("I(-0.5 * rho * (U_flow_ff_tmax / 1000)^2) + I(0.5 * rho * (U_ram_tmax / 1000)^2)",
                              "+ I(rho * R_tmax * U_flow_ff_acc_tmax / 1e6) + I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
-                             "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)"),
+                             "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)",
+                             "+ pressure_node_zR"),   # distance of the pressure node from the mouth: what the aperture correction leaves
 
     # Performance 2, Total_ingested_volume = T<A><U_flow_ff> + T Cov(A, U_flow_ff), is an identity (below): script 3 calculates it this way
 
@@ -159,8 +162,9 @@ library(lmerTest)
     Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length)",
 
     # Measured flow (#)
-    U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_vel_tmax / A_tmax)",
-    U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_acc_tmax / A_tmax) + I(V_buccal_vel_tmax * A_vel_tmax / A_tmax^2)",
+      # + distance of the static velocity node from the mouth: what the aperture correction leaves
+    U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_vel_tmax / A_tmax) + static_node_zR_tmax",
+    U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_acc_tmax / A_tmax) + I(V_buccal_vel_tmax * A_vel_tmax / A_tmax^2) + static_node_zR_tmax",
     U_flow_ef_meas_mean     = "Kinetic_Synchronization + U_flow_ff_predicted_mean_bigGape",
 
     # Mandible rotation (#)
@@ -279,6 +283,10 @@ library(lmerTest)
       if(!is.na(changes[[nm]]) && grepl("^\\s*\\+", changes[[nm]])) {
         if(!(nm %in% names(eqs))) stop("Structure '", structureNow, "' adds to ", nm, ", which has no equation")
         eqs[nm] <- paste(eqs[[nm]], changes[[nm]])
+      } else if(!is.na(changes[[nm]]) && grepl("^\\s*-", changes[[nm]])) {
+        termNow <- trimws(sub("^\\s*-", "", changes[[nm]]))
+        if(!grepl(paste0(" + ", termNow), eqs[[nm]], fixed = TRUE)) stop("Structure '", structureNow, "': ", nm, " has no term ", termNow)
+        eqs[nm] <- sub(paste0(" + ", termNow), "", eqs[[nm]], fixed = TRUE)
       } else {
         eqs[nm] <- changes[[nm]]
       }
