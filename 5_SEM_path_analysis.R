@@ -278,6 +278,9 @@ library(lmerTest)
     # that group varying ("alone"). In-sample, with the main fit (the whole-model R^2, not the cross-validated one)
     # Groups: PIV node distance (measurement), ram, Effort, morphology (one value per fish), kinematics and timing (per strike)
   r2Decompose <- TRUE   ### CHANGE
+  # Intermediate variables that also get the whole-model R^2 (in-sample and cross-validated) and the decomposition, as the outcomes do
+    # (their R2_local is their own equation's). Ignored if not in the model
+  r2Extra <- c("U_flow_ef_meas_tmax", "U_flow_ff_tmax", "V_buccal_vel_tmax", "Q_flow_meas_max")   ### CHANGE
 
   # The two performance outcomes. Effects on these are reported
   outcomes <- c("Max_sub_pressure", "Total_ingested_volume")
@@ -1131,7 +1134,8 @@ library(lmerTest)
     cvPred <- data.frame(vidName = d$vidName)
     foldsNow <- foldOf[d$Fish_ID]
     nCvFail <- 0
-    for(o in outcomes) cvPred[[o]] <- NA_real_
+    r2Vars <- unique(c(outcomes, intersect(r2Extra, nodeOrder)))   # outcomes + intermediate variables for the R^2 tables
+    for(o in r2Vars) cvPred[[o]] <- NA_real_
     # One fold: fit without its fish, predict them (NULL if it fails). Folds run in parallel with nCores > 1
     cvFold <- function(k) {
       testRows <- which(foldsNow == k)
@@ -1150,7 +1154,7 @@ library(lmerTest)
         next
       }
       if(length(resK$rows) == 0) next
-      for(o in outcomes) cvPred[[o]][resK$rows] <- resK$pred[[o]]
+      for(o in r2Vars) cvPred[[o]][resK$rows] <- resK$pred[[o]]
     }
     if(nCvFail > 0) {
       print(paste0(nCvFail, " of ", cvFolds, " cross-validation folds failed to fit (their fish have no prediction)"))
@@ -1169,7 +1173,7 @@ library(lmerTest)
       }
       found
     }
-    r2Table <- do.call(rbind, lapply(outcomes, function(o) {
+    r2Table <- do.call(rbind, lapply(r2Vars, function(o) {
       wholeNow <- r2Of(d[[o]], predIn[[o]])
       cvNow    <- r2Of(d[[o]], cvPred[[o]])
       localNow <- eqSummary$R2_marginal[eqSummary$equation == o]
@@ -1178,7 +1182,7 @@ library(lmerTest)
                  R2_whole = wholeNow[["R2"]], n_whole = wholeNow[["n"]], R2_whole_cv = cvNow[["R2"]], n_cv = cvNow[["n"]],
                  fitted_inputs_R2 = paste(paste0(inputsNow, " ", round(eqSummary$R2_marginal[match(inputsNow, eqSummary$equation)], 3)), collapse = "; "))
     }))
-    print("Variance explained in each outcome (R2_local NA = an identity; its fitted inputs and their R2 are listed):")
+    print("Variance explained in each outcome and in the r2Extra variables (R2_local NA = an identity; its fitted inputs and their R2 are listed):")
     print(r2Table, row.names = FALSE, digits = 3)
 
 
@@ -1194,12 +1198,13 @@ library(lmerTest)
       fishLevelOf <- function(v) all(tapply(dDec[[v]], dDec$Fish_ID, function(z) { z <- z[is.finite(z)]; length(unique(z)) <= 1 }))
       exoGroup <- sapply(exoNow, function(v) {
         if(grepl("_node_zR", v)) return("measurement: PIV node distance")
+        if(grepl("^U_flow|^Cov_R_Uflow|^Cov_A_Uflow|^Q_flow", v)) return("measurement: PIV flow")
         if(grepl("^U_ram|^Cov_R_Uram", v)) return("ram")
         if(v %in% c("Effort_strike", "Behavior_fish", "Effort_score")) return("Effort (behaviour)")
         if(fishLevelOf(v)) "morphology (per fish)" else "kinematics and timing (per strike)"
       })
       holdAt <- function(dd, vars) { for(v in vars) dd[[v]] <- mean(dDec[[v]], na.rm = TRUE); dd }
-      r2Dec <- do.call(rbind, lapply(outcomes, function(o) {
+      r2Dec <- do.call(rbind, lapply(r2Vars, function(o) {
         rowsOk <- is.finite(predIn[[o]]) & is.finite(dDec[[o]])
         if(sum(rowsOk) < 10) return(NULL)
         dRows <- dDec[rowsOk, , drop = FALSE]
