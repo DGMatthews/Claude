@@ -103,6 +103,7 @@ library(lmerTest)
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   compareFlowKinematic <- FALSE ### CHANGE  (in variants above for now)
+  compareFlowAdditiveNoDist <- TRUE   ### CHANGE  flowAdditive without the node-distance covariates (tmaxVel)
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePressureK   <- FALSE   ### CHANGE  (script 4's pressureVersion "correctedK" already makes it the main pressure; TRUE only adds a duplicate)
   comparePivCentered <- FALSE   ### CHANGE  (tried: centring made pressure unpredictable, cross-validated R^2 ~0)
@@ -118,6 +119,7 @@ library(lmerTest)
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
+  if(compareFlowAdditiveNoDist) variants <- rbind(variants, transform(compareBase, structure = "flowAdditiveNoDist"))
   if(compareFlowKinematic) variants <- rbind(variants, transform(compareBase, structure = "flowKinematic"))
   if(compareMullerK)     variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK"))
   if(compareMullerK && compareDistance) variants <- rbind(variants, transform(compareBase, flowVersion = "staticK+mouthFrontCorrK", structure = "noDist"))
@@ -172,6 +174,10 @@ library(lmerTest)
                        # Q_flow_meas_max: the measured peak volume rate (A x fish-frame flow), from the kinematic one and the timing
                        # U_flow_ef_meas_tmax: the measured flow at tmax(Vel) = measured peak volume rate / gape area, minus ram (fish ->
                          # earth frame), + node distance
+                     # flowAdditive without the node-distance covariates (flow and pressure): how much the kinematics explain alone
+                     flowAdditiveNoDist = c(U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + V_buccal_vel_tmax + A_tmax",
+                                            U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + V_buccal_acc_tmax + V_buccal_vel_tmax + A_tmax + A_vel_tmax",
+                                            Max_sub_pressure        = "- pressure_node_zR"),
                      flowVolume = c(Q_buccal_pred_max   = "Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax + V_buccal_Max",
                                     Q_flow_meas_max     = "Q_buccal_pred_max + Relative_tmax * Kinetic_Synchronization",
                                     U_flow_ef_meas_tmax = "I(Q_flow_meas_max / A_tmax) + U_ram_tmax + static_node_zR_tmax"),
