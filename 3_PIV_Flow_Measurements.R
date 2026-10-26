@@ -25,7 +25,8 @@
     # final_results_all_passed.xlsx only supplies where the peak velocity and pressure nodes were (px)
   # Pressure: Max_sub_pressure = the PIV pipeline's peak pressure (Pa, negative = sub-ambient), only for videos whose pressure analysis passed
   # Flow is a speed (magnitude, m/s from the PIV, converted to mm/s), assumed to be along the strike axis like U_ram
-  # U_flow_ff = U_flow_ef_meas - U_ram (fish frame)
+  # U_flow_ff = U_flow_ef_meas + U_ram (fish frame: speed of water entering the mouth)
+    # The measured flow is water moving toward the fish and ram is the fish moving toward the water, so the two add
 
   # Output: flowMeasurements.csv (one row per kinematic video, matched on vidName) and flowTimeSeries.rds
 
@@ -475,11 +476,11 @@ rm(list=ls())
         resNow["U_flow_ef_meas_acc_tmax"]    <- traceAt(smU, tmaxNow, timeNow, 1)
         resNow["U_flow_ef_meas_acc_tmaxVel"] <- traceAt(smU, tmaxVelNow, timeNow, 1)
 
-        # Fish frame: subtract ram (identities with the SEM equations)
-        resNow["U_flow_ff_tmax"]        <- resNow[["U_flow_ef_meas_tmax"]]        - kin$U_ram_tmax[i]
-        resNow["U_flow_ff_tmaxVel"]     <- resNow[["U_flow_ef_meas_tmaxVel"]]     - kin$U_ram_tmaxVel[i]
-        resNow["U_flow_ff_acc_tmax"]    <- resNow[["U_flow_ef_meas_acc_tmax"]]    - kin$U_ram_acc_tmax[i]
-        resNow["U_flow_ff_acc_tmaxVel"] <- resNow[["U_flow_ef_meas_acc_tmaxVel"]] - kin$U_ram_acc_tmaxVel[i]
+        # Fish frame: add ram, since water moves toward the fish and the fish moves toward the water (identities with the SEM equations)
+        resNow["U_flow_ff_tmax"]        <- resNow[["U_flow_ef_meas_tmax"]]        + kin$U_ram_tmax[i]
+        resNow["U_flow_ff_tmaxVel"]     <- resNow[["U_flow_ef_meas_tmaxVel"]]     + kin$U_ram_tmaxVel[i]
+        resNow["U_flow_ff_acc_tmax"]    <- resNow[["U_flow_ef_meas_acc_tmax"]]    + kin$U_ram_acc_tmax[i]
+        resNow["U_flow_ff_acc_tmaxVel"] <- resNow[["U_flow_ef_meas_acc_tmaxVel"]] + kin$U_ram_acc_tmaxVel[i]
 
         # Over the strike (Tstart-Tend)
         if(length(strikeK) > 0) {
@@ -505,7 +506,7 @@ rm(list=ls())
 
           if(!censored && coverageOK) {
 
-            uFF <- uS - U_ram_t[strikeK]
+            uFF <- uS + U_ram_t[strikeK]   # fish frame (water toward the fish + fish toward the water)
             rS  <- R_t[strikeK]
             aS  <- A_t[strikeK]
 

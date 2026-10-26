@@ -2612,11 +2612,11 @@ for(i in 1:nVids) {
 
 
                   # Cov_R_Uflowefmeas and Cov_R_Uflowff: add once the PIV flow time series are imported   ### CHANGE
-                    # Use the same frames as Cov_R_Uram, so Cov_R_Uflowff = Cov_R_Uflowefmeas - Cov_R_Uram is an exact identity
+                    # Use the same frames as Cov_R_Uram, so Cov_R_Uflowff = Cov_R_Uflowefmeas + Cov_R_Uram is an exact identity (fish frame = measured + ram)
                     # PIV is in m/s, so convert to mm/s (* 1000) first
                   # covFramesPIV <- intersect(covFrames, which(!is.na(U_flow_ef_meas_t)))
                   # finalData$Cov_R_Uflowefmeas[i] <- mean((R_t[covFramesPIV] - mean(R_t[covFramesPIV])) * (U_flow_ef_meas_t[covFramesPIV] - mean(U_flow_ef_meas_t[covFramesPIV])))
-                  # finalData$Cov_R_Uflowff[i]     <- finalData$Cov_R_Uflowefmeas[i] - finalData$Cov_R_Uram[i]
+                  # finalData$Cov_R_Uflowff[i]     <- finalData$Cov_R_Uflowefmeas[i] + finalData$Cov_R_Uram[i]
 
 
                   # Values at tmax
