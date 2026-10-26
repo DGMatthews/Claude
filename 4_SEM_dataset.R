@@ -95,7 +95,9 @@ rm(list=ls())
 
   # Max_sub_pressure: "corrected" = the PIV peak corrected to the aperture (script 3's Max_sub_pressure_corr; NA when the pressure node
     # was behind the mouth or beyond maxZoverR), or "raw" = the PIV peak at its own node. The raw value is always kept as Max_sub_pressure_raw
-  pressureVersion <- "corrected"   ### CHANGE  "corrected" or "raw"
+    # "correctedK" = corrected with script 3's second decay (Max_sub_pressure_corrK: the decay implied by the velocity exponent
+    # mullerExponentAlt, k = 0.61), consistent with the flow correction. The chosen version
+  pressureVersion <- "correctedK"   ### CHANGE  "correctedK", "corrected" or "raw"
 
   # PIV scale factor of each video (script 3's PIV_scale_<version>: measured / kinematic flow), for script 5's "centered" versions
     # Relative to well-centred videos: divided by its pivScaleRefQuantile quantile across videos, so a video at that quantile is 1
@@ -271,8 +273,8 @@ rm(list=ls())
   flagVars <- c("Tend_censored", "Mouth_open_corrected", "Hyoid_depth_source")
 
   # Stop if any expected column is missing from the inputs (a name changed in an earlier script)
-  if(!(pressureVersion %in% c("corrected", "raw"))) {
-    stop("pressureVersion must be 'corrected' or 'raw'")
+  if(!(pressureVersion %in% c("correctedK", "corrected", "raw"))) {
+    stop("pressureVersion must be 'correctedK', 'corrected' or 'raw'")
   }
   if(!(widthModel %in% widthModels) || !(flowVersion %in% flowVersions)) {
     stop("widthModel and flowVersion must be in widthModels and flowVersions")
@@ -344,7 +346,11 @@ rm(list=ls())
 
     # Outcome 1 (Pa, negative = sub-ambient). Doesn't depend on the time basis
     out$Max_sub_pressure_raw <- flow$Max_sub_pressure[flowRow]
-    out$Max_sub_pressure     <- if(pressureVersion == "corrected") flow$Max_sub_pressure_corr[flowRow] else out$Max_sub_pressure_raw
+    if(pressureVersion == "correctedK" && !("Max_sub_pressure_corrK" %in% names(flow))) {
+      stop("pressureVersion 'correctedK' needs Max_sub_pressure_corrK: rerun script 3 with pressureDecayAlt set")
+    }
+    out$Max_sub_pressure     <- switch(pressureVersion, correctedK = flow$Max_sub_pressure_corrK[flowRow],
+                                       corrected = flow$Max_sub_pressure_corr[flowRow], raw = out$Max_sub_pressure_raw)
     # The peak corrected with script 3's second decay (pressureDecayAlt), for script 5's comparePressureK (NA if script 3 didn't make it)
     out$Max_sub_pressure_K   <- colOr(flow, "Max_sub_pressure_corrK", flowRow)
     # PIV scale factor (NA if script 3 didn't make it, or not positive)

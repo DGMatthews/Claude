@@ -136,3 +136,7 @@ Your explanation: if the laser sheet misses the centre plane of the suction, tha
 - **Script 4, `PIV_scale`:** the mouth-front estimate (`pivScaleVersion`), relative to its 90th percentile (`pivScaleRefQuantile`). Well-centred videos are about 1.
 - **Script 5, `comparePivCentered`:** divides the measured flow at tmax and the pressure by `PIV_scale`, then recalculates the fish-frame flow (ram is unchanged). It runs this for the base and `flowKinematic` structures.
 - **Caveat:** the scale is measured against the kinematic flow. So in the centred models, kinematics → flow is an assumption backed by the within-video agreement, not a result. The steps on either side are still tested.
+
+## Chosen pressure correction
+
+Pressure is corrected with the decay implied by the velocity exponent (k = 0.61), so it matches the flow correction. This is script 4's `pressureVersion = "correctedK"`, from script 3's `Max_sub_pressure_corrK`. The within-video pressure decay check had too few videos (15) to estimate the decay from the pressure itself.

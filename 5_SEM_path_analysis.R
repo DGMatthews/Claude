@@ -99,7 +99,7 @@ library(lmerTest)
   compareFlowDirect  <- FALSE   ### CHANGE
   compareFlowKinematic <- TRUE  ### CHANGE
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
-  comparePressureK   <- TRUE    ### CHANGE
+  comparePressureK   <- FALSE   ### CHANGE  (script 4's pressureVersion "correctedK" already makes it the main pressure; TRUE only adds a duplicate)
   comparePivCentered <- TRUE    ### CHANGE
   comparePeak        <- FALSE   ### CHANGE
   compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK", ktVersion = "static", structure = "base")   ### CHANGE
