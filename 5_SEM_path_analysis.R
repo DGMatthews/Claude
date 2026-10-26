@@ -1198,6 +1198,7 @@ library(lmerTest)
       fishLevelOf <- function(v) all(tapply(dDec[[v]], dDec$Fish_ID, function(z) { z <- z[is.finite(z)]; length(unique(z)) <= 1 }))
       exoGroup <- sapply(exoNow, function(v) {
         if(grepl("_node_zR", v)) return("measurement: PIV node distance")
+        if(grepl("^U_flow|^Cov_R_Uflow|^Cov_A_Uflow|^Q_flow", v)) return("measurement: PIV flow")
         if(grepl("^U_ram|^Cov_R_Uram", v)) return("ram")
         if(v %in% c("Effort_strike", "Behavior_fish", "Effort_score")) return("Effort (behaviour)")
         if(fishLevelOf(v)) "morphology (per fish)" else "kinematics and timing (per strike)"
