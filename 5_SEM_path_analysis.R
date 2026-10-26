@@ -51,7 +51,7 @@ library(lmerTest)
   outFolder   <- file.path(pathData, 'SEM_results')       ### CHANGE  folder for the results (made if needed)
 
   # Script 2, for the four-bar functions and sign settings (so the four-bar identities match script 2 exactly)
-  script2 <- '2_ACxTRC_Kinematic_Measurements_Sept2026.R'   ### CHANGE  path to script 2
+  script2 <- 'C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/Albertson lab/Projects/Hybrid Feeding/ACxTRC/R/2_ACxTRC_Kinematic_Measurements_Sept2026.R'   ### CHANGE
 
   # The models to fit and compare. One row per model:
     # timeBasis:   "tmax" or "tmaxVel"
@@ -131,10 +131,12 @@ library(lmerTest)
   pathEqs <- c(
 
     # Performance 1 (*): Muller et al. eq. 39, expanded. Each term in Pa (velocities mm/s -> m/s, R mm -> m)
+      # d/dt(U_flow_ef * R) expanded with U_flow_ef = U_flow_ff - U_ram (measured flow and ram are speeds in opposite directions),
+        # so the ram parts of the unsteady terms have a minus sign
       # If the physics holds exactly every coefficient is 1
     Max_sub_pressure = paste("I(-0.5 * rho * (U_flow_ff_tmax / 1000)^2) + I(0.5 * rho * (U_ram_tmax / 1000)^2)",
-                             "+ I(rho * R_tmax * U_flow_ff_acc_tmax / 1e6) + I(rho * R_tmax * U_ram_acc_tmax / 1e6)",
-                             "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(rho * U_ram_tmax * R_vel_tmax / 1e6)"),
+                             "+ I(rho * R_tmax * U_flow_ff_acc_tmax / 1e6) + I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
+                             "+ I(rho * U_flow_ff_tmax * R_vel_tmax / 1e6) + I(-rho * U_ram_tmax * R_vel_tmax / 1e6)"),
 
     # Performance 2 (*): T<A><U_flow_ff> + T Cov(A, U_flow_ff). Coefficients are 1 if Total_ingested_volume is in mm^3
     Total_ingested_volume = "I(T * A_mean * U_flow_ff_mean) + I(T * Cov_A_Uflowff)",   ### CHECK units of Total_ingested_volume
@@ -190,14 +192,15 @@ library(lmerTest)
   oralLinks <- "Mandible_input_length, Maxilla_length, Maxilla_palatine_length, Oral_fixed_length"
   operLinks <- "Operculum_length, IOP_link_length, RA_process_length, Opercular_fixed_length"
   identityEqs <- c(
-    U_flow_ff_tmax           = "U_flow_ef_meas_tmax - U_ram_tmax",
-    U_flow_ff_acc_tmax       = "U_flow_ef_meas_acc_tmax - U_ram_acc_tmax",
-    U_flow_ff_mean           = "U_flow_ef_meas_mean - U_ram_mean",
+    # Fish frame = measured (water toward the fish) + ram (fish toward the water)
+    U_flow_ff_tmax           = "U_flow_ef_meas_tmax + U_ram_tmax",
+    U_flow_ff_acc_tmax       = "U_flow_ef_meas_acc_tmax + U_ram_acc_tmax",
+    U_flow_ff_mean           = "U_flow_ef_meas_mean + U_ram_mean",
     Mandible_dep_vel_tmax    = "Mandible_length * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
     Cov_A_Uflowff            = "(pi * W_jaw / 2) * Cov_R_Uflowff",
-    Cov_R_Uflowff            = "Cov_R_Uflowefmeas - Cov_R_Uram",
+    Cov_R_Uflowff            = "Cov_R_Uflowefmeas + Cov_R_Uram",
     Neurocranium_angular_vel_tmax = "Neurocranium_linear_vel_tmax / Neurocranium_length",
     Neurocranium_tip_disp_tmax    = "Neurocranium_rotation_tmax * Neurocranium_length",
     Neurocranium_MA          = "Supraoccipital_crest_depth / Neurocranium_length",
@@ -528,7 +531,7 @@ library(lmerTest)
           next
         }
 
-        # Linear determination check (e.g. U_flow_ef_meas = U_flow_ff + U_ram when both are conditioned on)
+        # Linear determination check (e.g. U_flow_ef_meas = U_flow_ff - U_ram when both are conditioned on)
         if(is.numeric(dClaim[[x]])) {
           mmNow <- model.matrix(as.formula(paste("~", paste(c(pathEqs[[y]], extraNow), collapse = " + "))), dClaim)
           r2Now <- summary(lm(dClaim[[x]] ~ mmNow))$r.squared
