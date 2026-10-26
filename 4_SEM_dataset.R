@@ -68,6 +68,12 @@ rm(list=ls())
   widthModels  <- c("main", "noRetract", "noWidth")   ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
   flowVersions <- c("static+mouthFrontCorr", "static+staticRaw", "static", "staticRaw", "mouthFrontCorr")   ### CHANGE
 
+  # Time bases. "tmax" (peak pressure) and "tmaxVel" (peak velocity): every variable at the same instant
+    # "peak": every variable at its own maximum over the strike (needs script 2's _peak columns and script 3's _Max columns)
+      # Variables script 5 calculates from others (identities such as U_flow_ff, Mandible_depression, the four-bar angles) are left
+      # NA here and recalculated from the peaks in script 5
+  timeBases <- c("tmax", "tmaxVel", "peak")   ### CHANGE
+
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
   widthModel  <- "main"            ### CHANGE
   flowVersion <- "static+mouthFrontCorr"   ### CHANGE
@@ -279,12 +285,25 @@ rm(list=ls())
                       timeBasis = timeNow, widthModel = widthNow, flowVersion = flowNow, stringsAsFactors = FALSE)
 
     # Instantaneous values, saved under the _tmax name whichever time this is
-    for(v in timeVarsKin)    out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow)]]
-    for(v in timeVarsBuccal) out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow, widthSuffix)]]
-    for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow), flowParts(flowNow)[["instant"]])]][flowRow]
-    out$Hyoid_tmax_filled <- kin[[paste0("Hyoid_", timeNow, "_filled")]]
-    # Time of tmax (or tmaxVel) from Tstart (s), for Relative_tmax = tmax / T in script 5
-    out$tmax_from_Tstart <- kin[[timeNow]] - kin$Tstart
+      # "peak": each variable's maximum over the strike (NA where the column doesn't exist; script 5 recalculates identities)
+    colOr <- function(df, colNow, rows = NULL) {
+      if(!(colNow %in% names(df))) return(rep(NA_real_, nrow(out)))
+      if(is.null(rows)) df[[colNow]] else df[[colNow]][rows]
+    }
+    kinPeakName  <- c(A = "A_Max", Hyoid_depression = "Hyoid_Max", Relative = "Relative_tmax")   # peaks saved under other names
+    flowPeakName <- c(U_flow_ef_meas = "U_flow_ef_meas_Max", U_flow_ef_meas_acc = "U_flow_ef_meas_acc_Max")
+    for(v in timeVarsKin) {
+      colNow <- if(timeNow != "peak") paste0(v, "_", timeNow) else if(v %in% names(kinPeakName)) kinPeakName[[v]] else paste0(v, "_peak")
+      out[[paste0(v, "_tmax")]] <- colOr(kin, colNow)
+    }
+    for(v in timeVarsBuccal) out[[paste0(v, "_tmax")]] <- colOr(kin, paste0(v, "_", if(timeNow == "peak") "peak" else timeNow, widthSuffix))
+    for(v in timeVarsFlow) {
+      stemNow <- if(timeNow != "peak") paste0(v, "_", timeNow) else if(v %in% names(flowPeakName)) flowPeakName[[v]] else paste0(v, "_peak")
+      out[[paste0(v, "_tmax")]] <- colOr(flow, flowName(stemNow, flowParts(flowNow)[["instant"]]), flowRow)
+    }
+    out$Hyoid_tmax_filled <- if(timeNow == "peak") NA else kin[[paste0("Hyoid_", timeNow, "_filled")]]
+    # Time of tmax (or tmaxVel) from Tstart (s), for Relative_tmax = tmax / T in script 5 ("peak": tmax, the pressure peak)
+    out$tmax_from_Tstart <- kin[[if(timeNow == "peak") "tmax" else timeNow]] - kin$Tstart
 
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
@@ -303,7 +322,7 @@ rm(list=ls())
 
     # Distance of the static velocity node from the mouth at tmax (or tmaxVel), in multiples of the gape radius R
       # (+ = in front of the mouth). The same in every flow version; a covariate for the uncorrected static flow in script 5
-    out$static_node_zR_tmax <- flow[[paste0("static_node_zR_", timeNow)]][flowRow]
+    out$static_node_zR_tmax <- flow[[paste0("static_node_zR_", if(timeNow == "peak") "tmaxVel" else timeNow)]][flowRow]   # peak: at peak velocity
 
     # Distance of the pressure peak node from the mouth (multiples of R), at the pressure peak. A covariate for pressure in script 5
     out$pressure_node_zR <- flow$pressure_node_zR[flowRow]
@@ -356,7 +375,11 @@ rm(list=ls())
 
   # Effort (latent variable) is not made here: it's fitted in script 5 (see 5_SEM_notes.md)
   # Every time basis x width model x flow version, named "timeBasis|widthModel|flowVersion"
-  combos <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = widthModels, flowVersion = flowVersions, stringsAsFactors = FALSE)
+  if("peak" %in% timeBases && !("R_peak" %in% names(kin))) {
+    print("The kinematics output has no _peak columns (rerun script 2 in runMode 'all'): the peak time basis is skipped")
+    timeBases <- setdiff(timeBases, "peak")
+  }
+  combos <- expand.grid(timeBasis = timeBases, widthModel = widthModels, flowVersion = flowVersions, stringsAsFactors = FALSE)
   allDatasets <- list()
   for(k in seq_len(nrow(combos))) {
     allDatasets[[paste(combos$timeBasis[k], combos$widthModel[k], combos$flowVersion[k], sep = "|")]] <-
@@ -364,8 +387,7 @@ rm(list=ls())
   }
 
   # The chosen combination, for the checks and the CSVs
-  datasets <- list(tmax    = allDatasets[[paste("tmax", widthModel, flowVersion, sep = "|")]],
-                   tmaxVel = allDatasets[[paste("tmaxVel", widthModel, flowVersion, sep = "|")]])
+  datasets <- lapply(setNames(timeBases, timeBases), function(tNow) allDatasets[[paste(tNow, widthModel, flowVersion, sep = "|")]])
 
 
 ############

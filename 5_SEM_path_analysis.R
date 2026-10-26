@@ -71,12 +71,15 @@ library(lmerTest)
     # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
     # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
     # compareFlowDirect:  measured flow predicted directly from the predictors of buccal volume, without buccal volume (structure flowDirect)
+    # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
+      # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
   compareDistance    <- FALSE   ### CHANGE
   compareWidthModels <- FALSE   ### CHANGE
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
+  comparePeak        <- TRUE    ### CHANGE
   compareBase <- data.frame(timeBasis = "tmax", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
@@ -84,6 +87,7 @@ library(lmerTest)
   if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
   if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
   if(compareFlowDirect)  variants <- rbind(variants, transform(compareBase, structure = "flowDirect"))
+  if(comparePeak)        variants <- rbind(variants, transform(compareBase, timeBasis = "peak"))
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
@@ -810,6 +814,17 @@ library(lmerTest)
            paste(paste0(notNumeric, " (", sapply(notNumeric, function(v) class(d[[v]])[1]), ")"), collapse = ", "))
     }
 
+
+    ##### Peak time basis: variables at "tmax" that are calculated from others (identities) are recalculated from the peaks
+      # e.g. U_flow_ff = peak measured flow + peak ram, Mandible_depression from the peak mandible angle, the four-bar angles and KT
+      # In the order they are listed, so an identity's inputs are done first
+    if(variants$timeBasis[vNow] == "peak") {
+      for(v in names(identityEqs)[grepl("_tmax$", names(identityEqs))]) {
+        if(all(varsOf(identityEqs[[v]]) %in% names(d))) {
+          d[[v]] <- eval(parse(text = identityEqs[[v]])[[1]], d, globalenv())
+        }
+      }
+    }
 
     ##### Identity check: each identity recalculated from the data, compared with the column
       # Large differences mean the upstream scripts don't calculate the variable the way the equation says

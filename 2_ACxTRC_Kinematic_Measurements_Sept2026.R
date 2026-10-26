@@ -309,6 +309,15 @@ try(print(h5ls(file=fileNames[1])))
       predict(fit, x = tNow, deriv = deriv)$y
     }
 
+    # Peak (maximum) of a fitted spline, or of its derivative, over the strike (Tstart-Tend), at the video's frame times
+      # For the "peak" time basis: each variable's own maximum instead of its value at one time. NA if fewer than 2 frames
+    peakOver <- function(fit, tFrom, tTo, deriv, timesNow) {
+      if(is.na(tFrom) || is.na(tTo)) return(NA_real_)
+      tNow <- timesNow[timesNow >= max(tFrom, min(fit$x)) & timesNow <= min(tTo, max(fit$x))]
+      if(length(tNow) < 2) return(NA_real_)
+      max(predict(fit, x = tNow, deriv = deriv)$y)
+    }
+
     # TRUE if any of the times is inside tRange (c(first, last)). Used to decide whether a spline needs fitting for tmax or tmaxVel
     anyInRange <- function(tTimes, tRange) {
       any(!is.na(tTimes) & tTimes >= tRange[1] & tTimes <= tRange[2])
@@ -365,7 +374,7 @@ try(print(h5ls(file=fileNames[1])))
                              lambdaRefDerived, spanRef, negTolerance, missingMsg) {
 
       out <- list(values = c(Time = NA_real_, visible_frac = NA_real_, vel_mean_visible = NA_real_,
-                             vel_tmax = NA_real_, vel_tmaxVel = NA_real_, Max = NA_real_, tmax = NA_real_, tmaxVel = NA_real_,
+                             vel_tmax = NA_real_, vel_tmaxVel = NA_real_, vel_peak = NA_real_, Max = NA_real_, tmax = NA_real_, tmaxVel = NA_real_,
                              tmax_filled = NA_real_, tmaxVel_filled = NA_real_, t_mean = NA_real_, vel_mean = NA_real_),
                   vel_t = NULL, depression_t = NULL, log = character())
 
@@ -403,6 +412,11 @@ try(print(h5ls(file=fileNames[1])))
         vel_t <- rep(NA_real_, length(raw_t))
         vel_t[goodFrames] <- predict(rawSmooth, x = timeSeriesNow[goodFrames], deriv = 1)$y
         out$vel_t <- vel_t
+
+        # Largest velocity over the visible strike frames (for the "peak" time basis)
+        if(length(strikeFrames) >= 2) {
+          out$values["vel_peak"] <- max(vel_t[strikeFrames], na.rm = TRUE)
+        }
 
         # Plain mean velocity over visible frames from Tstart to the peak
         velFrames <- intersect(startPos:peakFrame, goodFrames)
@@ -799,6 +813,12 @@ if(longestVid == 0) {
                 # Maxilla_tip_disp_t
 
 #Make a list of arrays to hold all the time series. Each array is a time series that has one value x the number of frames x the number of events
+# Peak values (each variable's maximum over the strike, for the "peak" time basis in scripts 4 and 5)
+peakCols <- c("R_peak", "R_vel_peak", "Protrusion_peak", "Protrusion_vel_peak", "Mandible_tip_disp_peak", "Mandible_tip_disp_vel_peak", "Mandible_ang_peak", "Mandible_angular_vel_peak", "Neurocranium_rotation_peak", "Neurocranium_angular_vel_peak", "Neurocranium_tip_disp_eye_peak", "Maxilla_ang_cam_peak", "Maxilla_angular_vel_cam_peak", "Maxilla_tip_disp_cam_peak", "Maxilla_linear_vel_cam_peak", "Maxilla_ang_peak", "Maxilla_angular_vel_peak", "Maxilla_tip_disp_peak", "Maxilla_linear_vel_peak", "U_ram_peak", "U_ram_acc_peak", "U_ram_body_peak", "U_ram_body_acc_peak", "Hyoid_vel_peak", "Neurocranium_linear_vel_peak", "V_buccal_vel_peak", "V_buccal_acc_peak", "V_buccal_vel_peak_noRetract", "V_buccal_acc_peak_noRetract", "V_buccal_vel_peak_noWidth", "V_buccal_acc_peak_noWidth")
+for(colNow in peakCols) {
+  finalData[[colNow]] <- NA_real_
+}
+
 finalTimeSeriesData <- list(R_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("R_t", NULL, fileNames2)),
                             U_flow_ef_meas_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("U_flow_ef_meas_t", NULL, fileNames2)),
                             Protrusion_t = array(data=NA, dim = c(1,longestVid, nVids), dimnames = list("Protrusion_t", NULL, fileNames2)),
@@ -1251,7 +1271,7 @@ print(length(unique(finalData$Unique.ID)))
 
   # finalData columns for each hyoid version. Names on the left match the values returned by hyoidOutputs()
   hyoidColsMain <- c(Time = "Time_hyoid", visible_frac = "Hyoid_visible_frac", vel_mean_visible = "Hyoid_vel_mean_visible",
-                     vel_tmax = "Hyoid_vel_tmax", Max = "Hyoid_Max", tmax = "Hyoid_depression_tmax",
+                     vel_tmax = "Hyoid_vel_tmax", vel_peak = "Hyoid_vel_peak", Max = "Hyoid_Max", tmax = "Hyoid_depression_tmax",
                      vel_tmaxVel = "Hyoid_vel_tmaxVel", tmaxVel = "Hyoid_depression_tmaxVel",
                      tmax_filled = "Hyoid_tmax_filled", tmaxVel_filled = "Hyoid_tmaxVel_filled",
                      t_mean = "Hyoid_depression_t_mean", vel_mean = "Hyoid_vel_mean")
@@ -1639,10 +1659,12 @@ for(i in 1:nVids) {
                     
                     # R_tmax (mm)
                     finalData$R_tmax[i]    <- predictAt(R_t_smooth, finalData$tmax[i], 0)
+                    finalData$R_peak[i]    <- peakOver(R_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                     finalData$R_tmaxVel[i] <- predictAt(R_t_smooth, finalData$tmaxVel[i], 0)
                     
                     # R_vel_tmax (mm/s)
                     finalData$R_vel_tmax[i]    <- predictAt(R_t_smooth, finalData$tmax[i], 1)
+                    finalData$R_vel_peak[i]    <- peakOver(R_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                     finalData$R_vel_tmaxVel[i] <- predictAt(R_t_smooth, finalData$tmaxVel[i], 1)
                 }
           }
@@ -1774,10 +1796,12 @@ for(i in 1:nVids) {
                             
                             # Protrusion_tmax (mm)
                             finalData$Protrusion_tmax[i]    <- predictAt(Protrusion_t_smooth, finalData$tmax[i], 0)
+                            finalData$Protrusion_peak[i]    <- peakOver(Protrusion_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                             finalData$Protrusion_tmaxVel[i] <- predictAt(Protrusion_t_smooth, finalData$tmaxVel[i], 0)
                             
                             # Protrusion_vel_tmax (mm/s)
                             finalData$Protrusion_vel_tmax[i]    <- predictAt(Protrusion_t_smooth, finalData$tmax[i], 1)
+                            finalData$Protrusion_vel_peak[i]    <- peakOver(Protrusion_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                             finalData$Protrusion_vel_tmaxVel[i] <- predictAt(Protrusion_t_smooth, finalData$tmaxVel[i], 1)
                         }
                     }
@@ -1856,10 +1880,12 @@ for(i in 1:nVids) {
 
                             # Mandible_tip_disp_tmax (mm)
                             finalData$Mandible_tip_disp_tmax[i]    <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmax[i], 0)
+                            finalData$Mandible_tip_disp_peak[i]    <- peakOver(Mandible_tip_disp_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                             finalData$Mandible_tip_disp_tmaxVel[i] <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmaxVel[i], 0)
 
                             # Mandible_tip_disp_vel_tmax (mm/s)
                             finalData$Mandible_tip_disp_vel_tmax[i]    <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmax[i], 1)
+                            finalData$Mandible_tip_disp_vel_peak[i]    <- peakOver(Mandible_tip_disp_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                             finalData$Mandible_tip_disp_vel_tmaxVel[i] <- predictAt(Mandible_tip_disp_t_smooth, finalData$tmaxVel[i], 1)
                         }
                     }
@@ -1933,10 +1959,12 @@ for(i in 1:nVids) {
 
                             # Mandible_ang_tmax (radians)
                             finalData$Mandible_ang_tmax[i]    <- predictAt(Mandible_ang_t_smooth, finalData$tmax[i], 0)
+                            finalData$Mandible_ang_peak[i]    <- peakOver(Mandible_ang_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                             finalData$Mandible_ang_tmaxVel[i] <- predictAt(Mandible_ang_t_smooth, finalData$tmaxVel[i], 0)
 
                             # Mandible_angular_vel_tmax (radians/s)
                             finalData$Mandible_angular_vel_tmax[i]    <- predictAt(Mandible_ang_t_smooth, finalData$tmax[i], 1)
+                            finalData$Mandible_angular_vel_peak[i]    <- peakOver(Mandible_ang_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                             finalData$Mandible_angular_vel_tmaxVel[i] <- predictAt(Mandible_ang_t_smooth, finalData$tmaxVel[i], 1)
 
                             # Depression and its velocity come from the angle, so the SEM equations are exact identities
@@ -2139,10 +2167,12 @@ for(i in 1:nVids) {
 
                           # Neurocranium_rotation_tmax (radians)
                           finalData$Neurocranium_rotation_tmax[i]    <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmax[i], 0)
+                          finalData$Neurocranium_rotation_peak[i]    <- peakOver(Neurocranium_rotation_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                           finalData$Neurocranium_rotation_tmaxVel[i] <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmaxVel[i], 0)
 
                           # Neurocranium_angular_vel_tmax (radians/s)
                           finalData$Neurocranium_angular_vel_tmax[i]    <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmax[i], 1)
+                          finalData$Neurocranium_angular_vel_peak[i]    <- peakOver(Neurocranium_rotation_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                           finalData$Neurocranium_angular_vel_tmaxVel[i] <- predictAt(Neurocranium_rotation_t_smooth, finalData$tmaxVel[i], 1)
 
                           # Tip displacement and linear velocity come from the rotation spline, so the SEM equations are exact identities
@@ -2153,12 +2183,14 @@ for(i in 1:nVids) {
 
                           # Neurocranium_linear_vel_tmax (mm/s)
                           finalData$Neurocranium_linear_vel_tmax[i] <- neuroL * finalData$Neurocranium_angular_vel_tmax[i]
+                          finalData$Neurocranium_linear_vel_peak[i] <- neuroL * finalData$Neurocranium_angular_vel_peak[i]
                           finalData$Neurocranium_linear_vel_tmaxVel[i] <- neuroL * finalData$Neurocranium_angular_vel_tmaxVel[i]
 
 
                           # Neurocranium_tip_disp_eye_tmax (mm). Separate spline, same frames and smoothing
                           Neurocranium_tip_disp_eye_t_smooth <- smooth.spline(x = timeSeriesNow[goodFrames_neuro], y = Neurocranium_tip_disp_eye_t[goodFrames_neuro], lambda = lambdaNow)
                           finalData$Neurocranium_tip_disp_eye_tmax[i]    <- predictAt(Neurocranium_tip_disp_eye_t_smooth, finalData$tmax[i], 0)
+                          finalData$Neurocranium_tip_disp_eye_peak[i]    <- peakOver(Neurocranium_tip_disp_eye_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                           finalData$Neurocranium_tip_disp_eye_tmaxVel[i] <- predictAt(Neurocranium_tip_disp_eye_t_smooth, finalData$tmaxVel[i], 0)
                       }
                   }
@@ -2272,10 +2304,12 @@ for(i in 1:nVids) {
 
                       # Maxilla_ang_cam_tmax (radians)
                       finalData$Maxilla_ang_cam_tmax[i]    <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmax[i], 0)
+                      finalData$Maxilla_ang_cam_peak[i]    <- peakOver(Maxilla_ang_cam_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                       finalData$Maxilla_ang_cam_tmaxVel[i] <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmaxVel[i], 0)
 
                       # Maxilla_angular_vel_cam_tmax (radians/s)
                       finalData$Maxilla_angular_vel_cam_tmax[i]    <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmax[i], 1)
+                      finalData$Maxilla_angular_vel_cam_peak[i]    <- peakOver(Maxilla_ang_cam_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                       finalData$Maxilla_angular_vel_cam_tmaxVel[i] <- predictAt(Maxilla_ang_cam_t_smooth, finalData$tmaxVel[i], 1)
 
 
@@ -2283,10 +2317,12 @@ for(i in 1:nVids) {
 
                       # Maxilla_tip_disp_cam_tmax (mm)
                       finalData$Maxilla_tip_disp_cam_tmax[i]    <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmax[i], 0)
+                      finalData$Maxilla_tip_disp_cam_peak[i]    <- peakOver(Maxilla_tip_disp_cam_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                       finalData$Maxilla_tip_disp_cam_tmaxVel[i] <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmaxVel[i], 0)
 
                       # Maxilla_linear_vel_cam_tmax (mm/s)
                       finalData$Maxilla_linear_vel_cam_tmax[i]    <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmax[i], 1)
+                      finalData$Maxilla_linear_vel_cam_peak[i]    <- peakOver(Maxilla_tip_disp_cam_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                       finalData$Maxilla_linear_vel_cam_tmaxVel[i] <- predictAt(Maxilla_tip_disp_cam_t_smooth, finalData$tmaxVel[i], 1)
                   }
               }
@@ -2343,10 +2379,12 @@ for(i in 1:nVids) {
 
                           # Maxilla_ang_tmax (radians)
                           finalData$Maxilla_ang_tmax[i]    <- predictAt(Maxilla_ang_t_smooth, finalData$tmax[i], 0)
+                          finalData$Maxilla_ang_peak[i]    <- peakOver(Maxilla_ang_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                           finalData$Maxilla_ang_tmaxVel[i] <- predictAt(Maxilla_ang_t_smooth, finalData$tmaxVel[i], 0)
 
                           # Maxilla_angular_vel_tmax (radians/s)
                           finalData$Maxilla_angular_vel_tmax[i]    <- predictAt(Maxilla_ang_t_smooth, finalData$tmax[i], 1)
+                          finalData$Maxilla_angular_vel_peak[i]    <- peakOver(Maxilla_ang_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                           finalData$Maxilla_angular_vel_tmaxVel[i] <- predictAt(Maxilla_ang_t_smooth, finalData$tmaxVel[i], 1)
 
 
@@ -2354,10 +2392,12 @@ for(i in 1:nVids) {
 
                           # Maxilla_tip_disp_tmax (mm)
                           finalData$Maxilla_tip_disp_tmax[i]    <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmax[i], 0)
+                          finalData$Maxilla_tip_disp_peak[i]    <- peakOver(Maxilla_tip_disp_t_smooth, finalData$Tstart[i], finalData$Tend[i], 0, timeSeriesNow)
                           finalData$Maxilla_tip_disp_tmaxVel[i] <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmaxVel[i], 0)
 
                           # Maxilla_linear_vel_tmax (mm/s)
                           finalData$Maxilla_linear_vel_tmax[i]    <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmax[i], 1)
+                          finalData$Maxilla_linear_vel_peak[i]    <- peakOver(Maxilla_tip_disp_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                           finalData$Maxilla_linear_vel_tmaxVel[i] <- predictAt(Maxilla_tip_disp_t_smooth, finalData$tmaxVel[i], 1)
                       }
                   }
@@ -2625,10 +2665,12 @@ for(i in 1:nVids) {
 
                       # U_ram_tmax (mm/s)
                       finalData$U_ram_tmax[i]    <- predictAt(x_mouth_t_smooth, finalData$tmax[i], 1)
+                      finalData$U_ram_peak[i]    <- peakOver(x_mouth_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                       finalData$U_ram_tmaxVel[i] <- predictAt(x_mouth_t_smooth, finalData$tmaxVel[i], 1)
 
                       # U_ram_acc_tmax (mm/s^2)
                       finalData$U_ram_acc_tmax[i]    <- predictAt(x_mouth_t_smooth, finalData$tmax[i], 2)
+                      finalData$U_ram_acc_peak[i]    <- peakOver(x_mouth_t_smooth, finalData$Tstart[i], finalData$Tend[i], 2, timeSeriesNow)
                       finalData$U_ram_acc_tmaxVel[i] <- predictAt(x_mouth_t_smooth, finalData$tmaxVel[i], 2)
                   }
 
@@ -2676,10 +2718,12 @@ for(i in 1:nVids) {
 
                         # U_ram_body_tmax (mm/s)
                         finalData$U_ram_body_tmax[i]    <- predictAt(x_nasal_t_smooth, finalData$tmax[i], 1)
+                        finalData$U_ram_body_peak[i]    <- peakOver(x_nasal_t_smooth, finalData$Tstart[i], finalData$Tend[i], 1, timeSeriesNow)
                         finalData$U_ram_body_tmaxVel[i] <- predictAt(x_nasal_t_smooth, finalData$tmaxVel[i], 1)
 
                         # U_ram_body_acc_tmax (mm/s^2)
                         finalData$U_ram_body_acc_tmax[i]    <- predictAt(x_nasal_t_smooth, finalData$tmax[i], 2)
+                        finalData$U_ram_body_acc_peak[i]    <- peakOver(x_nasal_t_smooth, finalData$Tstart[i], finalData$Tend[i], 2, timeSeriesNow)
                         finalData$U_ram_body_acc_tmaxVel[i] <- predictAt(x_nasal_t_smooth, finalData$tmaxVel[i], 2)
 
                     }
@@ -2760,7 +2804,9 @@ for(i in 1:nVids) {
       finalTimeSeriesData[[tsName]][1, , triPrevRows] <- NA
     }
 
-    buccalCols <- c("V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
+    buccalCols <- c("V_buccal_vel_peak", "V_buccal_acc_peak", "V_buccal_vel_peak_noRetract", "V_buccal_acc_peak_noRetract",
+                    "V_buccal_vel_peak_noWidth", "V_buccal_acc_peak_noWidth",
+                    "V_buccal_vel_tmax", "V_buccal_acc_tmax", "V_buccal_Max", "Buccal_width_expansion_Max", "U_flow_ff_predicted_mean",
                     "U_flow_ff_predicted_mean_full", "U_flow_ff_predicted_mean_frames", "U_flow_ff_predicted_mean_bigGape", "Width_hypaxial_floor_frames", "Width_total_floor_frames", "V_buccal_neuroIncluded",
                     "Hyoid_beyond_ceratohyal_frames",
                     "V_buccal_Max_noRetract",
@@ -2954,6 +3000,7 @@ for(i in 1:nVids) {
       V_t      <- ((ncL + protNow) / 3) * (areaNow + areaBack + sqrt(areaNow * areaBack))
 
       out <- list(values = c(V_buccal_Max = max(V_t), V_buccal_vel_tmax = NA_real_, V_buccal_vel_tmaxVel = NA_real_,
+                             V_buccal_vel_peak = NA_real_, V_buccal_acc_peak = NA_real_,
                              V_buccal_acc_tmax = NA_real_, V_buccal_acc_tmaxVel = NA_real_,
                              U_flow_ff_predicted_mean = NA_real_, U_flow_ff_predicted_mean_frames = NA_real_,
                              U_flow_ff_predicted_mean_full = NA_real_, U_flow_ff_predicted_mean_bigGape = NA_real_),
@@ -2986,6 +3033,10 @@ for(i in 1:nVids) {
       if(length(bigGapeFrames) > 0) {
         out$values["U_flow_ff_predicted_mean_bigGape"] <- mean(out$flow_t[bigGapeFrames])
       }
+
+      # Largest rate and acceleration over the strike (for the "peak" time basis)
+      out$values["V_buccal_vel_peak"] <- max(out$vel_t)
+      out$values["V_buccal_acc_peak"] <- max(predict(V_smooth, x = timeNow, deriv = 2)$y)
 
       # Values at tmax and tmaxVel (NA outside Tstart-Tend)
       out$values["V_buccal_vel_tmax"]    <- predictAt(V_smooth, tmax, 1)
