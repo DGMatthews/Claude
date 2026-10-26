@@ -323,9 +323,11 @@ library(lmerTest)
     if(!inherits(m, "merMod")) {
       return(suppressWarnings(predict(m, newdata = newdata)))   # lm handles dropped (aliased) columns itself
     }
-    ttNow  <- delete.response(terms(m, fixed.only = TRUE))
+    # Fixed-effect formula without the random term, built the same way lmer builds its fixed-effect matrix
+    ttNow  <- delete.response(terms(lme4::nobars(formula(m))))
     mfOld  <- model.frame(m)
-    xlevNow <- lapply(mfOld[sapply(mfOld, is.factor)], levels)
+    factorsNow <- intersect(names(mfOld)[sapply(mfOld, is.factor)], all.vars(ttNow))
+    xlevNow <- lapply(mfOld[factorsNow], levels)
     for(fNow in names(xlevNow)) {
       newLev <- setdiff(unique(na.omit(as.character(newdata[[fNow]]))), xlevNow[[fNow]])
       if(length(newLev) > 0) stop("Prediction at ", fNow, " = ", paste(newLev, collapse = ", "), ", a level with no rows in this equation")
@@ -333,6 +335,11 @@ library(lmerTest)
     mfNow  <- model.frame(ttNow, newdata, na.action = na.pass, xlev = xlevNow)
     XNow   <- model.matrix(ttNow, mfNow)
     bNow   <- fixef(m)
+    missNow <- setdiff(names(bNow), colnames(XNow))
+    if(length(missNow) > 0) {
+      stop("Prediction for ", deparse(formula(m)[[2]]), ": coefficients not in the rebuilt model matrix: ", paste(missNow, collapse = ", "),
+           ". Matrix columns: ", paste(colnames(XNow), collapse = ", "))
+    }
     drop(XNow[, names(bNow), drop = FALSE] %*% bNow)
   }
 
@@ -457,7 +464,8 @@ library(lmerTest)
       if(v %in% names(pathEqs)) {
         okNow <- complete.cases(predNow[, nodeParents[[v]], drop = FALSE])
         predNow[[v]] <- NA_real_
-        if(any(okNow)) predNow[[v]][okNow] <- predFixed(fits[[v]], predNow[okNow, , drop = FALSE])
+        if(any(okNow)) predNow[[v]][okNow] <- tryCatch(predFixed(fits[[v]], predNow[okNow, , drop = FALSE]),
+                                                       error = function(e) stop("Whole-model prediction of ", v, ": ", conditionMessage(e)))
       } else {
         predNow[[v]] <- eval(parse(text = activeIdentities[[v]])[[1]], predNow, globalenv())
       }
@@ -500,7 +508,8 @@ library(lmerTest)
       }
       for(x in nodeParents[[y]]) {
         levsAvail <- if(y %in% names(pathEqs) && is.factor(d[[x]])) levels(model.frame(fits[[y]])[[x]]) else NULL
-        B[y, x] <- derivAt(funNow, refRow, x, sdOf(d[[x]]), levsAvail)
+        B[y, x] <- tryCatch(derivAt(funNow, refRow, x, sdOf(d[[x]]), levsAvail),
+                            error = function(e) stop("Path effect of ", x, " on ", y, ": ", conditionMessage(e)))
       }
     }
     badB <- which(!is.finite(B), arr.ind = TRUE)
@@ -691,6 +700,14 @@ library(lmerTest)
     list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score")),
              envir = globalenv())
     print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
+
+    # Every variable in the equations must be numeric (Prey_num is the one ordered factor)
+    varsUsedNow <- setdiff(unique(c(names(nodeParents), unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators)), "Effort_score")
+    notNumeric <- varsUsedNow[!sapply(varsUsedNow, function(v) is.numeric(d[[v]]) || (v == "Prey_num" && is.ordered(d[[v]])))]
+    if(length(notNumeric) > 0) {
+      stop("Variables that aren't numeric (check the data sheet / script 4): ",
+           paste(paste0(notNumeric, " (", sapply(notNumeric, function(v) class(d[[v]])[1]), ")"), collapse = ", "))
+    }
 
 
     ##### Identity check: each identity recalculated from the data, compared with the column
