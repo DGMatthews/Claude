@@ -89,7 +89,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmaxVel_main_static+mouthFrontCorr_dynamic_base")   ### CHANGE  while the structure is still changing
+  bootVariants <- c("tmax_main_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
