@@ -63,17 +63,24 @@ library(lmerTest)
   variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "main", flowVersion = "static+mouthFrontCorr",
                           ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
 
-  # Optional comparisons (each adds models to variants)
+  # Optional comparisons (each adds models to variants). All but compareStaticRaw are variations of one model (compareBase)
+    # and change only predictors, so they are in that model's aic_group and compared by AIC
     # compareStaticRaw:   the same models with the uncorrected static flow (staticRaw) throughout
-    # compareDistance:    tmaxVel model without the node-distance covariates (structure noDist), to see how much they add
-    # compareWidthModels: tmaxVel model with the other buccal width models (noRetract, noWidth). Same responses, so compared by AIC
+    # compareDistance:    without the node-distance covariates (structure noDist), to see how much they add
+    # compareWidthModels: with the other buccal width models (noRetract, noWidth)
+    # compareBuccalFull:  buccal volume rate and acceleration with every term of the V_buccal(t) equation (structure buccalFull)
+    # compareFlowRam:     ram in the measured-flow equations (structure flowRam)
   compareStaticRaw   <- FALSE   ### CHANGE
   compareDistance    <- FALSE   ### CHANGE
   compareWidthModels <- FALSE   ### CHANGE
-  baseVel <- data.frame(timeBasis = "tmaxVel", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "dynamic", structure = "base")
+  compareBuccalFull  <- FALSE   ### CHANGE
+  compareFlowRam     <- FALSE   ### CHANGE
+  compareBase <- data.frame(timeBasis = "tmax", widthModel = "main", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
-  if(compareDistance)    variants <- rbind(variants, transform(baseVel, structure = "noDist"))
-  if(compareWidthModels) variants <- rbind(variants, transform(baseVel[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
+  if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
+  if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("noRetract", "noWidth")))
+  if(compareBuccalFull)  variants <- rbind(variants, transform(compareBase, structure = "buccalFull"))
+  if(compareFlowRam)     variants <- rbind(variants, transform(compareBase, structure = "flowRam"))
     # e.g. add the width models: widthModel = c("main", "noRetract", "noWidth"); or add rows with rbind(variants, data.frame(...))
   variants$label <- with(variants, paste(timeBasis, widthModel, flowVersion, ktVersion, structure, sep = "_"))
 
@@ -85,7 +92,19 @@ library(lmerTest)
                      # Without the node-distance covariates (they are in the base equations)
                      noDist = c(Max_sub_pressure        = "- pressure_node_zR",
                                 U_flow_ef_meas_tmax     = "- static_node_zR_tmax",
-                                U_flow_ef_meas_acc_tmax = "- static_node_zR_tmax"))   ### CHANGE
+                                U_flow_ef_meas_acc_tmax = "- static_node_zR_tmax"),
+                     # Every term of the V_buccal(t) equation in the SEM documents: the volume depends on the levels as well as the
+                       # rates (protrusion, gape, hyoid depression, width expansion via neurocranium rotation and the ceratohyals)
+                       # and on head size (neurocranium length, jaw and head width, head depth, ceratohyal length)
+                     buccalFull = c(V_buccal_vel_tmax = paste("+ Hyoid_depression_tmax + Protrusion_tmax + R_tmax + Neurocranium_rotation_tmax",
+                                                              "+ Neurocranium_length + W_jaw + W_head + D_head + Ceratohyal_length"),
+                                    V_buccal_acc_tmax = paste("+ Hyoid_depression_tmax + Protrusion_tmax + R_tmax + Neurocranium_rotation_tmax",
+                                                              "+ Neurocranium_length + W_jaw + W_head + D_head + Ceratohyal_length")),
+                     # Ram in the measured-flow equations: buccal expansion predicts flow relative to the fish (fish frame), and
+                       # the measured earth-frame flow = fish-frame flow - ram, so ram is part of what explains the measured flow
+                     flowRam = c(U_flow_ef_meas_tmax     = "+ U_ram_tmax",
+                                 U_flow_ef_meas_acc_tmax = "+ U_ram_acc_tmax",
+                                 U_flow_ef_meas_mean     = "+ U_ram_mean"))   ### CHANGE
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
@@ -174,6 +193,13 @@ library(lmerTest)
     U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_vel_tmax / A_tmax) + static_node_zR_tmax",
     U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + I(V_buccal_acc_tmax / A_tmax) + I(V_buccal_vel_tmax * A_vel_tmax / A_tmax^2) + static_node_zR_tmax",
     U_flow_ef_meas_mean     = "Kinetic_Synchronization + U_flow_ff_predicted_mean_bigGape",
+
+    # Buccal volume (#): its rate and acceleration at tmax come from the expansion of the head (V_buccal(t) in the documents)
+      # The accelerations of the head components aren't measured, so V_buccal_acc uses the same velocities
+    V_buccal_vel_tmax = "Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax",
+    V_buccal_acc_tmax = "Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax",
+    # Big-gape mean of the predicted flow V_buccal'(t) / A(t) (documents): volume gained up to peak gape over gape area and time
+    U_flow_ff_predicted_mean_bigGape = "I(V_buccal_Max / (A_mean * ttpg))",   ### CHECK
 
     # Mandible rotation (#)
     Mandible_angular_vel_tmax = "Neurocranium_angular_vel_tmax * {OpercularKT} * IOP_ligament_CSA + Hyoid_vel_tmax * I(Protractor_hyoideus_CSA / Mandible_length)",
