@@ -153,18 +153,20 @@ library(lmerTest)
     # (its strike part comes straight from the measurement model)
   effortCovariates <- FALSE   ### CHANGE
 
-  # Strike maxima as predictors of the values at tmax and the strike means (the d-separation test flagged them as missing)
-    # Name = response, value = the maximum added to its equation. A_Max (gape area) stands in for the gape maximum (A is proportional to R)
-    # Mandible_depression_tmax is an identity (from Mandible_ang_tmax), so it can't take an arrow
-    # Left out on the peak time basis: there the _tmax columns ARE the strike maxima (e.g. Hyoid_depression_tmax = Hyoid_Max)
-  maxArrows <- c(R_tmax                     = "A_Max",
-                 R_t_mean                   = "A_Max",
+  # Strike maxima (_Max: each variable's largest value over the strike)
+    # Each has the same predictors as the variable at tmax (the Max equations and identities below), and takes the place of the
+    # tmax value as the predictor of the strike means (e.g. Hyoid_depression_t_mean ~ ... + Hyoid_Max)
+    # maxArrows: the maximum is also a predictor of the value at tmax (the d-separation test flagged these). character(0) = none
+  maxArrows <- c(R_tmax                     = "R_Max",
                  Protrusion_tmax            = "Protrusion_Max",
-                 Protrusion_t_mean          = "Protrusion_Max",
                  Hyoid_depression_tmax      = "Hyoid_Max",
-                 Hyoid_depression_t_mean    = "Hyoid_Max",
-                 Mandible_depression_t_mean = "Mandible_depression_Max",
-                 Neurocranium_rotation_tmax = "Neurocranium_Max")   ### CHANGE  character(0) = none
+                 Neurocranium_rotation_tmax = "Neurocranium_Max")   ### CHANGE
+    # On the peak time basis the _tmax columns ARE the strike maxima, so the Max equations and maxArrows are left out and every
+    # _Max name in the other equations is replaced by its _tmax column (maxToTmax)
+  maxToTmax <- c(R_Max = "R_tmax", A_Max = "A_tmax", Protrusion_Max = "Protrusion_tmax", Hyoid_Max = "Hyoid_depression_tmax",
+                 Mandible_Max = "Mandible_ang_tmax", Mandible_depression_Max = "Mandible_depression_tmax",
+                 Neurocranium_Max = "Neurocranium_rotation_tmax", Neurocranium_tip_disp_Max = "Neurocranium_tip_disp_tmax",
+                 Maxilla_tip_disp_Max = "Maxilla_tip_disp_tmax")
 
   # Reference values for the linearization (docs: "90% of max to avoid edge fitting problems")
     # "fracMax": refFrac x the value with the largest magnitude (keeps the sign, so pressure uses 90% of the most negative)
@@ -210,16 +212,18 @@ library(lmerTest)
     # Gape (#)
     R_tmax     = "Protrusion_tmax + Mandible_depression_tmax",
     R_vel_tmax = "Protrusion_vel_tmax + Mandible_dep_vel_tmax",
-    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_tmax",   # mean gape also depends on the peak gape
+    R_t_mean   = "Protrusion_t_mean + Mandible_depression_t_mean + R_Max",   # mean gape also depends on the largest gape
+    R_Max      = "Protrusion_Max + Mandible_depression_Max",                 # largest gape: as R_tmax, from the components' maxima
 
     # Protrusion (#)
     Protrusion_tmax     = "Neurocranium_tip_disp_tmax + Maxilla_tip_disp_tmax",
     Protrusion_vel_tmax = "Neurocranium_linear_vel_tmax + Maxilla_linear_vel_tmax",
-    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_tmax",   # mean protrusion also depends on the peak
+    Protrusion_t_mean   = "Relative_ttpg * Protrusion_ROM + Protrusion_Max",   # mean protrusion also depends on the largest protrusion
+    Protrusion_Max      = "Neurocranium_tip_disp_Max + Maxilla_tip_disp_Max",
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
-    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_tmax",
+    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_Max",
 
     # Measured flow (#)
       # + distance of the static velocity node from the mouth: what the aperture correction leaves
@@ -242,11 +246,13 @@ library(lmerTest)
     # Hyoid (#)
     Hyoid_vel_tmax          = "Hypaxial_CSA * Effort_score * Sternohyoideus_CSA + Urohyal_length",
     Hyoid_depression_tmax   = "Relative_tmax * Hyoid_ROM",
-    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_depression_tmax",
+    Hyoid_Max               = "Relative_tmax * Hyoid_ROM",
+    Hyoid_depression_t_mean = "Relative_ttpg * Hyoid_ROM + Hyoid_Max",
 
     # Neurocranium (#). Docs: Epaxial_CSA * Effort / Neurocranium_MA, written as a product with 1/MA
     Neurocranium_linear_vel_tmax = "Epaxial_CSA * Effort_score * I(1 / Neurocranium_MA)",   ### CHECK
     Neurocranium_rotation_tmax   = "Relative_tmax * Neurocranium_ROM",
+    Neurocranium_Max             = "Relative_tmax * Neurocranium_ROM",
 
     # Maxilla (*): output angular velocity = input angular velocity x KT
     Maxilla_angular_vel_tmax = "I(Mandible_angular_vel_tmax * {OralKT})",
@@ -285,6 +291,9 @@ library(lmerTest)
     U_flow_ff_mean           = "U_flow_ef_meas_mean + U_ram_mean",
     Mandible_dep_vel_tmax    = "Mandible_length * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
+    Mandible_depression_Max  = "Mandible_length * sin(Mandible_Max)",   # strike maxima, as at tmax
+    A_Max                    = "(pi * W_jaw / 2) * R_Max",
+    Neurocranium_tip_disp_Max = "Neurocranium_Max * Neurocranium_length",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
     A_tmax                   = "(pi * W_jaw / 2) * R_tmax",       # gape area, as script 2 calculates it
     # Performance 2 (script 3 calculates it exactly this way, so it isn't fitted)
@@ -350,7 +359,7 @@ library(lmerTest)
     if(!(structureNow %in% names(structures))) stop("No structure called '", structureNow, "' in structures")
     eqs <- pathEqsBase
     if(!effortCovariates) eqs <- eqs[names(eqs) != "Effort_score"]
-    # Strike maxima (maxArrows), except on the peak time basis
+    # Strike maxima (maxArrows). Peak time basis: no Max equations or arrows (applied after the structure's changes, below)
     if(timeNow != "peak") {
       for(nm in names(maxArrows)) {
         if(!(nm %in% names(eqs))) stop("maxArrows adds to ", nm, ", which has no equation")
@@ -371,6 +380,10 @@ library(lmerTest)
       }
     }
     eqs <- eqs[!is.na(eqs)]
+    if(timeNow == "peak") {
+      eqs <- eqs[!(names(eqs) %in% names(maxToTmax))]
+      for(nm in names(maxToTmax)) eqs <- gsub(paste0("\\b", nm, "\\b"), maxToTmax[[nm]], eqs, perl = TRUE)
+    }
     for(nm in names(ktCols)) {
       eqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], eqs, fixed = TRUE)
     }

@@ -237,8 +237,8 @@ rm(list=ls())
   # One value per strike (no time)
   strikeVars <- c("Ttotal", "Ttpg", "Relative_ttpg", "Kinetic_Synchronization", "Time_hyoid", "Time_cranial",
                   "R_t_mean", "A_mean", "A_Max", "Protrusion_t_mean", "Mandible_depression_t_mean", "Hyoid_depression_t_mean",
-                  "Hyoid_Max", "Protrusion_Max",   # strike maxima, for the V_buccal_Max equation and the maxArrows in script 5
-                  "Mandible_depression_Max", "Neurocranium_Max",
+                  "Hyoid_Max", "Protrusion_Max",   # strike maxima, for the Max equations in script 5 (+ R_Max, Maxilla_tip_disp_Max below)
+                  "Mandible_Max", "Mandible_depression_Max", "Neurocranium_Max",
                   "U_ram_mean", "Cov_R_Uram",
                   "Hyoid_vel_mean", "Neurocranium_linear_vel_mean", "Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean",
                   "Prey_num", "Fasting_time", "Satiation")
@@ -311,6 +311,10 @@ rm(list=ls())
 
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
+    # Strike maxima script 2 doesn't save under a _Max name
+      # R_Max: from A_Max (= pi W_jaw / 2 x the largest gape), so the A_Max identity in script 5 holds exactly; the spline peak without W_jaw
+    out$R_Max <- ifelse(!is.na(kin$A_Max) & !is.na(kin$W_jaw), kin$A_Max / (pi * kin$W_jaw / 2), colOr(kin, "R_peak"))
+    out$Maxilla_tip_disp_Max <- colOr(kin, "Maxilla_tip_disp_peak")
     for(v in strikeVarsBuccal) out[[v]] <- kin[[paste0(v, widthSuffix)]]
 
     # Buccal volume shrinking at tmaxVel: no buccal-volume values for this video (dropNegBuccalVel)
@@ -318,6 +322,7 @@ rm(list=ls())
     out[out$buccal_excluded, c(paste0(timeVarsBuccal, "_tmax"), strikeVarsBuccal)] <- NA
     for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowParts(flowNow)[["means"]])]][flowRow]
     for(v in fishVars)         out[[v]] <- kin[[v]]
+    out$Neurocranium_tip_disp_Max <- out$Neurocranium_Max * out$Neurocranium_length   # as Neurocranium_tip_disp_tmax (identity in script 5)
     for(v in flagVars)         out[[v]] <- kin[[v]]
 
     # Outcome 1 (Pa, negative = sub-ambient). Doesn't depend on the time basis

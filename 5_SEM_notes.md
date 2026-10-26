@@ -70,13 +70,21 @@ Only `noWidth` (no lateral expansion of the buccal cavity) is used: it is the de
 - Script 3: within videos, noWidth tracked the measured flow best (shape and volume rate). noRetract predicted about half the measured volume rate.
 - Scripts 2 and 3 still calculate all three models as diagnostics. To compare them in the SEM, add `"main"` / `"noRetract"` to script 4's `widthModels` and set `compareWidthModels <- TRUE` in script 5.
 
-## Strike maxima (`maxArrows`)
+## Strike maxima (`_Max`)
 
-The d-separation test flagged the strike maxima as missing predictors of the values at tmax and of the strike means. So each of these equations gets its maximum as a predictor:
-- `A_Max` → `R_tmax` and `R_t_mean`
-- `Protrusion_Max` → `Protrusion_tmax` and `Protrusion_t_mean`
-- `Hyoid_Max` → `Hyoid_depression_tmax` and `Hyoid_depression_t_mean`
-- `Mandible_depression_Max` → `Mandible_depression_t_mean`
-- `Neurocranium_Max` → `Neurocranium_rotation_tmax`
+Each maximum has the same predictors as the variable at tmax, and takes the place of the tmax value as the predictor of the strike mean.
 
-The maxima are exogenous. `Mandible_depression_tmax` is an identity, so it gets no arrow. On the peak time basis these arrows are left out, because there the `_tmax` columns are the maxima themselves.
+| Maximum | Equation (as at tmax) | Predicts |
+|---|---|---|
+| `R_Max` | `Protrusion_Max + Mandible_depression_Max` | `R_t_mean`, `R_tmax` |
+| `Protrusion_Max` | `Neurocranium_tip_disp_Max + Maxilla_tip_disp_Max` | `Protrusion_t_mean`, `Protrusion_tmax`, `V_buccal_Max` |
+| `Hyoid_Max` | `Relative_tmax * Hyoid_ROM` | `Hyoid_depression_t_mean`, `Hyoid_depression_tmax`, `V_buccal_Max` |
+| `Neurocranium_Max` | `Relative_tmax * Neurocranium_ROM` | `Neurocranium_rotation_tmax` |
+| `Mandible_depression_Max` | identity: `Mandible_length * sin(Mandible_Max)` | `Mandible_depression_t_mean`, `R_Max` |
+| `A_Max` | identity: `(pi * W_jaw / 2) * R_Max` | `V_buccal_Max` |
+| `Neurocranium_tip_disp_Max` | identity: `Neurocranium_Max * Neurocranium_length` | `Protrusion_Max` |
+
+- **Arrows into the tmax values:** the Max → tmax arrows are `maxArrows`; `character(0)` removes them.
+- **Exogenous inputs:** `Mandible_Max` and `Maxilla_tip_disp_Max` (from script 2's `Maxilla_tip_disp_peak`).
+- **Built in script 4:** `R_Max` comes from `A_Max` (the spline peak where there is no `W_jaw`). Script 4 also calculates `Neurocranium_tip_disp_Max`.
+- **Peak time basis:** the `_tmax` columns are the maxima, so the Max equations and arrows are dropped there. Every `_Max` name is replaced by its `_tmax` column (`maxToTmax`).
