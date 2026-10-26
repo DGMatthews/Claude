@@ -362,6 +362,12 @@ rm(list=ls())
       # (+ = in front of the mouth). The same in every flow version; a covariate for the uncorrected static flow in script 5
     out$static_node_zR_tmax <- flow[[paste0("static_node_zR_", if(timeNow == "peak") "tmaxVel" else timeNow)]][flowRow]   # peak: at peak velocity
 
+    # Peak volume rates over the strike (mm^3/s; script 3's QmaxPred / QmaxMeas_<version>), for script 5's flowVolume structure
+      # Q_buccal_pred_max: the largest no-width buccal volume rate V_buccal'. Q_flow_meas_max: the largest A x measured fish-frame
+      # flow, from the instantaneous flow version. One value per strike (the same in every time basis)
+    out$Q_buccal_pred_max <- colOr(flow, "QmaxPred", flowRow)
+    out$Q_flow_meas_max   <- colOr(flow, paste0("QmaxMeas_", flowParts(flowNow)[["instant"]]), flowRow)
+
     # Distance of the pressure peak node from the mouth (multiples of R), at the pressure peak. A covariate for pressure in script 5
     out$pressure_node_zR <- flow$pressure_node_zR[flowRow]
 
@@ -381,7 +387,7 @@ rm(list=ls())
 
     # PIV problem flagged in the prey column: no pressure or flow for this video, and no prey count
     out$PIV_flagged <- preyNow %in% flagsNow
-    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "Max_sub_pressure_raw", "Max_sub_pressure_K", "PIV_scale", "static_node_zR_tmax", "pressure_node_zR")
+    pivCols <- c(paste0(timeVarsFlow, "_tmax"), strikeVarsFlow, "Max_sub_pressure", "Max_sub_pressure_raw", "Max_sub_pressure_K", "PIV_scale", "Q_flow_meas_max", "static_node_zR_tmax", "pressure_node_zR")
     out[out$PIV_flagged, pivCols] <- NA
     preyNow[out$PIV_flagged] <- NA
     out$Prey_num <- factor(preyNow, levels = levelsNow, ordered = TRUE)

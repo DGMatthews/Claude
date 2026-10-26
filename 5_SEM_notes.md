@@ -152,3 +152,12 @@ The ratio V_buccal_vel / A is only physical near peak flow: while the gape is sm
 - **Same pressure in every model:** corrected with k = 0.61, with nodes kept anywhere in the search area.
 
 Within a time basis, `flowAdditive` only changes predictors, so AIC compares it with `base` directly. Across time bases, compare the cross-validated pressure R².
+
+## Flow through peak volume rates (`flowVolume`)
+
+Script 3 compared kinematic and measured volume rates between videos. The peak volume rate agreed far better (log r ~0.4 across videos, ~0.5 across fish means) than the flow speed at one frame (~0.1–0.2), because it doesn't divide by the gape area or depend on the lag. `flowVolume` routes the flow through it:
+- `Q_buccal_pred_max` (kinematic peak volume rate) ~ head-component velocities + `V_buccal_Max`
+- `Q_flow_meas_max` (measured peak volume rate) ~ `Q_buccal_pred_max` + timing
+- `U_flow_ef_meas_tmax` ~ `Q_flow_meas_max / A_tmax` + ram + node distance
+
+It has extra responses, so it gets its own AIC group. Compare it by the cross-validated pressure R² and by the R² of the `Q_flow_meas_max` equation.

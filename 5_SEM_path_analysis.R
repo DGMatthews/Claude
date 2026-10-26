@@ -67,7 +67,7 @@ library(lmerTest)
     # the flow from buccal volume rate / gape area (base), as separate additive terms (flowAdditive), and pressure from the
     # kinematic flow (flowKinematic)
   variants <- expand.grid(timeBasis = c("tmaxVel", "peak"), widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
-                          ktVersion = "static", structure = c("base", "flowAdditive", "flowKinematic"), stringsAsFactors = FALSE)   ### CHANGE
+                          ktVersion = "static", structure = c("base", "flowAdditive", "flowVolume", "flowKinematic"), stringsAsFactors = FALSE)   ### CHANGE
   # variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
   #                         ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   # the single chosen model
   # variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
@@ -166,6 +166,15 @@ library(lmerTest)
                        # (V_buccal_vel / A blows up while the gape is still small; the ratio is only physical near peak flow)
                      flowAdditive = c(U_flow_ef_meas_tmax     = "Relative_tmax * Kinetic_Synchronization + V_buccal_vel_tmax + A_tmax + static_node_zR_tmax",
                                       U_flow_ef_meas_acc_tmax = "Relative_tmax * Kinetic_Synchronization + V_buccal_acc_tmax + V_buccal_vel_tmax + A_tmax + A_vel_tmax + static_node_zR_tmax"),
+                     # Measured flow through peak volume rates. Script 3: the kinematic and measured peak volume rates agree between
+                       # videos (log r ~0.4) and fish (~0.5), unlike the flow speeds at one frame (~0.1-0.2)
+                       # Q_buccal_pred_max: the kinematic peak volume rate, from the head-component velocities and the largest volume
+                       # Q_flow_meas_max: the measured peak volume rate (A x fish-frame flow), from the kinematic one and the timing
+                       # U_flow_ef_meas_tmax: the measured flow at tmax(Vel) = measured peak volume rate / gape area, minus ram (fish ->
+                         # earth frame), + node distance
+                     flowVolume = c(Q_buccal_pred_max   = "Hyoid_vel_tmax + Protrusion_vel_tmax + R_vel_tmax + Neurocranium_angular_vel_tmax + V_buccal_Max",
+                                    Q_flow_meas_max     = "Q_buccal_pred_max + Relative_tmax * Kinetic_Synchronization",
+                                    U_flow_ef_meas_tmax = "I(Q_flow_meas_max / A_tmax) + U_ram_tmax + static_node_zR_tmax"),
                      flowKinematic = c(Max_sub_pressure = paste("I(-0.5 * rho * (V_buccal_vel_tmax / A_tmax / 1000)^2) + I(0.5 * rho * (U_ram_tmax / 1000)^2)",
                                                                 "+ I(rho * R_tmax * (V_buccal_acc_tmax / A_tmax - V_buccal_vel_tmax * A_vel_tmax / A_tmax^2) / 1e6)",
                                                                 "+ I(-rho * R_tmax * U_ram_acc_tmax / 1e6)",
