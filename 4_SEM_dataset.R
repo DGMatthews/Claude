@@ -51,13 +51,19 @@ rm(list=ls())
   epaxialSection <- "crest"    ### CHANGE  "crest" (highest point of the supraoccipital crest) or "flat" (where the neurocranium flattens out)
 
   # Buccal width models (V_buccal and U_flow_ff_predicted) and measured-flow versions (script 3) to save in the .rds
-    # "" as a flow version = script 3's mainVersion (the unsuffixed columns)
-  widthModels  <- c("main", "noRetract", "noWidth")           ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
-  flowVersions <- c("static", "staticRaw", "mouthFrontCorr")   ### CHANGE  any of "staticRaw", "static", "mouthFrontCorr", "mouthFront", ""
+    # A flow version is one of script 3's versions ("static", "staticRaw", "mouthFrontCorr", "mouthFront"; "" = script 3's mainVersion),
+    # or two joined with "+": "instant+means"
+      # instant: values at tmax / tmaxVel (flow and acceleration, earth and fish frame)
+      # means:   strike means, covariances and total ingested volume
+      # e.g. "static+staticRaw": the aperture-corrected static node at tmax (where the correction matters for pressure),
+        # and the uncorrected static node for the strike means. The corrected node only covers part of each strike
+        # (frames within maxZoverR of the mouth), so its strike means exist for few videos and its ingested volume is extrapolated
+  widthModels  <- c("main", "noRetract", "noWidth")   ### CHANGE  any of "main" (bar model), "noRetract", "noWidth"
+  flowVersions <- c("static+staticRaw", "static", "staticRaw", "static+mouthFrontCorr", "mouthFrontCorr")   ### CHANGE
 
   # The combination saved to the CSVs and printed in the checks (also the default in script 5)
   widthModel  <- "main"            ### CHANGE
-  flowVersion <- "static"          ### CHANGE
+  flowVersion <- "static+staticRaw"   ### CHANGE
 
   # Videos where the gape never dropped back below the threshold (Tend_censored). Their duration-based values are already NA
   dropCensored <- FALSE        ### CHANGE  TRUE drops these videos entirely
@@ -111,7 +117,16 @@ rm(list=ls())
 
 ##### Flow (one row per kinematic video, matched on vidName)
   flowRow <- match(kin$vidName, flow$vidName)
-  flowName <- function(colNow, flowNow) paste0(colNow, if(flowNow == "") "" else paste0("_", flowNow))
+  # Column name in the flow output for one script 3 version
+  flowName <- function(colNow, versionNow) paste0(colNow, if(versionNow == "") "" else paste0("_", versionNow))
+  # Script 3 versions for the instantaneous values and for the strike means of a flow version ("a+b", or one version for both)
+  flowParts <- function(flowNow) {
+    partsNow <- strsplit(flowNow, "+", fixed = TRUE)[[1]]
+    if(length(partsNow) == 1) partsNow <- c(partsNow, partsNow)
+    if(flowNow == "") partsNow <- c("", "")
+    if(length(partsNow) != 2) stop("Flow version must be one version or 'instant+means': ", flowNow)
+    setNames(partsNow, c("instant", "means"))
+  }
 
 
 ##### Effort inputs from the data sheet
@@ -201,8 +216,8 @@ rm(list=ls())
                            "Hyoid_tmax_filled", "Hyoid_tmaxVel_filled", "tmax", "tmaxVel", "Tstart",
                            setdiff(strikeVars, names(effortCols)), fishVars, flagVars),
                          names(kin))
-  missingFlow <- setdiff(c(unlist(lapply(flowVersions, function(f) c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0)), f),
-                                                                     flowName(strikeVarsFlow, f)))), "Max_sub_pressure",
+  missingFlow <- setdiff(c(unlist(lapply(flowVersions, function(f) c(flowName(as.vector(outer(timeVarsFlow, c("_tmax", "_tmaxVel"), paste0)), flowParts(f)[["instant"]]),
+                                                                     flowName(strikeVarsFlow, flowParts(f)[["means"]])))), "Max_sub_pressure",
                            "static_node_zR_tmax", "static_node_zR_tmaxVel"),
                          names(flow))
   if(length(missingKin) > 0 || length(missingFlow) > 0) {
@@ -219,7 +234,7 @@ rm(list=ls())
     # Instantaneous values, saved under the _tmax name whichever time this is
     for(v in timeVarsKin)    out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow)]]
     for(v in timeVarsBuccal) out[[paste0(v, "_tmax")]] <- kin[[paste0(v, "_", timeNow, widthSuffix)]]
-    for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow), flowNow)]][flowRow]
+    for(v in timeVarsFlow)   out[[paste0(v, "_tmax")]] <- flow[[flowName(paste0(v, "_", timeNow), flowParts(flowNow)[["instant"]])]][flowRow]
     out$Hyoid_tmax_filled <- kin[[paste0("Hyoid_", timeNow, "_filled")]]
     # Time of tmax (or tmaxVel) from Tstart (s), for Relative_tmax = tmax / T in script 5
     out$tmax_from_Tstart <- kin[[timeNow]] - kin$Tstart
@@ -227,7 +242,7 @@ rm(list=ls())
     # Per strike and per fish
     for(v in strikeVars)       out[[v]] <- kin[[v]]
     for(v in strikeVarsBuccal) out[[v]] <- kin[[paste0(v, widthSuffix)]]
-    for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowNow)]][flowRow]
+    for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowParts(flowNow)[["means"]])]][flowRow]
     for(v in fishVars)         out[[v]] <- kin[[v]]
     for(v in flagVars)         out[[v]] <- kin[[v]]
 
