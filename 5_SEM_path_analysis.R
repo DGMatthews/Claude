@@ -66,8 +66,13 @@ library(lmerTest)
   # Time comparison (with the k = 0.61 pressure and the pressure nodes kept in the whole search area): tmaxVel vs. peak, each with
     # the flow from buccal volume rate / gape area (base), as separate additive terms (flowAdditive), and pressure from the
     # kinematic flow (flowKinematic)
-  variants <- expand.grid(timeBasis = c("tmaxVel", "peak"), widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
-                          ktVersion = "static", structure = c("base", "flowAdditive", "flowVolume", "flowKinematic"), stringsAsFactors = FALSE)   ### CHANGE
+  # Final model: tmaxVel, flow from buccal volume rate and gape area as additive terms (flowAdditive): best cross-validated R^2 of
+    # pressure (0.189) and lowest AIC of the tmaxVel models in the time-basis comparison
+  variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
+                          ktVersion = "static", structure = "flowAdditive", stringsAsFactors = FALSE)   ### CHANGE
+  # The time-basis comparison:
+  # variants <- expand.grid(timeBasis = c("tmaxVel", "peak"), widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
+  #                         ktVersion = "static", structure = c("base", "flowAdditive", "flowVolume", "flowKinematic"), stringsAsFactors = FALSE)
   # variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "staticK+mouthFrontCorrK",
   #                         ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   # the single chosen model
   # variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
@@ -97,13 +102,13 @@ library(lmerTest)
     # comparePeak:        the same model on the "peak" time basis (each variable's own maximum over the strike, from script 4)
       # Different data from tmax, so its own aic_group; compare by the cross-validated R^2 of pressure (the same outcome data)
   compareStaticRaw   <- FALSE   ### CHANGE
-  compareDistance    <- TRUE    ### CHANGE
+  compareDistance    <- FALSE   ### CHANGE
   compareWidthModels <- FALSE   ### CHANGE
   compareBuccalFull  <- FALSE   ### CHANGE
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   compareFlowKinematic <- FALSE ### CHANGE  (in variants above for now)
-  compareFlowAdditiveNoDist <- TRUE   ### CHANGE  flowAdditive without the node-distance covariates (tmaxVel)
+  compareFlowAdditiveNoDist <- FALSE  ### CHANGE  flowAdditive without the node-distance covariates (tmaxVel)
   compareMullerK     <- FALSE   ### CHANGE  (the chosen model already uses it; TRUE would duplicate it)
   comparePressureK   <- FALSE   ### CHANGE  (script 4's pressureVersion "correctedK" already makes it the main pressure; TRUE only adds a duplicate)
   comparePivCentered <- FALSE   ### CHANGE  (tried: centring made pressure unpredictable, cross-validated R^2 ~0)
@@ -189,7 +194,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmaxVel_noWidth_staticK+mouthFrontCorrK_static_base")   ### CHANGE
+  bootVariants <- c("tmaxVel_noWidth_staticK+mouthFrontCorrK_static_flowAdditive")   ### CHANGE
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -248,7 +253,7 @@ library(lmerTest)
 
   # Bootstrap
     # 0 = no bootstrap (no confidence intervals; everything else is the same)
-  nBoot  <- 200    ### CHANGE  1000+ for the final run (50 while the structure is still changing)
+  nBoot  <- 1000   ### CHANGE  1000+ for the final run (50 while the structure is still changing)
   ciLevel <- 0.95
   set.seed(1)
 
@@ -1178,6 +1183,10 @@ library(lmerTest)
     bootTotal <- array(NA_real_, dim = c(max(nBootNow, 1), length(outcomes), length(nodeOrder)), dimnames = list(NULL, outcomes, nodeOrder))
     bootTotalStd <- bootTotal
     bootCoefs <- list()
+    # Every arrow (parent -> child) in the path model, for bootstrap intervals of the standardized direct effects (script 6)
+    edgeList <- do.call(rbind, lapply(names(nodeParents), function(v) if(length(nodeParents[[v]]) > 0) data.frame(from = nodeParents[[v]], to = v)))
+    edgeKeys <- paste(edgeList$from, edgeList$to, sep = " -> ")
+    bootDirectStd <- matrix(NA_real_, max(nBootNow, 1), nrow(edgeList), dimnames = list(NULL, edgeKeys))
     nFail <- 0
     fishIDs <- unique(d$Fish_ID)
     # One bootstrap sample (NULL if it fails to fit). Samples run in parallel with nCores > 1 (no progress messages then)
@@ -1192,6 +1201,7 @@ library(lmerTest)
       if(k %% 50 == 0) print(paste0("Bootstrap ", k, " / ", nBootNow))
       if(is.null(runNow)) return(NULL)
       list(total = runNow$totalE[outcomes, ], totalStd = runNow$totalStd[outcomes, ],
+           directStd = runNow$directStd[cbind(edgeList$to, edgeList$from)],
            coefs = setNames(runNow$coefs$estimate, paste(runNow$coefs$equation, runNow$coefs$term, sep = " : ")))
     }
     timeBoot <- Sys.time()
@@ -1204,6 +1214,7 @@ library(lmerTest)
       }
       bootTotal[k, , ]    <- bootRes[[k]]$total
       bootTotalStd[k, , ] <- bootRes[[k]]$totalStd
+      bootDirectStd[k, ]  <- bootRes[[k]]$directStd
       bootCoefs[[k]] <- bootRes[[k]]$coefs
     }
     if(nFail > 0) {
@@ -1250,8 +1261,10 @@ library(lmerTest)
     write.csv(idCheck,   file.path(outFolder, paste0("identity_check_", lab, ".csv")), row.names = FALSE)
 
     results[[lab]] <- list(variant = variants[vNow, ], main = main, coefs = coefsNow, effects = effects, idCheck = idCheck,
-                           r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs,
-                           bootTotal = bootTotal, bootTotalStd = bootTotalStd, nBootFailed = nFail)
+                           r2 = r2Table, cvPred = cvPred, pathEqs = pathEqs, eqSummary = eqSummary,
+                           structure = list(activeIdentities = activeIdentities, nodeParents = nodeParents, nodeOrder = nodeOrder,
+                                            exogenous = exogenous, edges = edgeList),
+                           bootTotal = bootTotal, bootTotalStd = bootTotalStd, bootDirectStd = bootDirectStd, nBootFailed = nFail)
 
     rowNow <- data.frame(variants[vNow, c("label", "timeBasis", "widthModel", "flowVersion", "ktVersion", "structure", "pressure")],
                          n_rows = nrow(d), n_fish = length(unique(d$Fish_ID)), n_equations = length(pathEqs),
@@ -1400,6 +1413,8 @@ library(lmerTest)
   results$comparison <- comparison
   results$comparisonEquations <- eqLik
   results$settings <- list(datasetFile = datasetFile, variants = variants, structures = structures, randomTerm = randomTerm,
+                           outcomes = outcomes, effortIndicators = effortIndicators, constantNames = constantNames, ciLevel = ciLevel,
+                           splitEffort = splitEffort, refMedianVars = refMedianVars,
                            refType = refType, refFrac = refFrac, nBoot = nBoot, cvFolds = cvFolds,
                            standardizeIndicators = standardizeIndicators, checkEqs = checkEqs, identities = identityEqs)
   if(nCores > 1) parallel::stopCluster(cl)

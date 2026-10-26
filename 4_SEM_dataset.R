@@ -110,6 +110,10 @@ rm(list=ls())
   effortCols <- c(Prey_num     = "Prey.number",         ### CHECK
                   Fasting_time = "Days.without.food")   ### CHECK
 
+  # Standard length (mm), carried as SL for the size corrections in the QTL analysis (not used in the SEM)
+    # Looked for in the scan file first (one row per fish), then in the feeding data sheet (one row per video)
+  slColumn <- "SL"   ### CHECK  the column name of standard length
+
 
 #####################
 #  Read the data    #
@@ -131,7 +135,7 @@ rm(list=ls())
   print(paste0(nrow(kin), " processed videos"))
 
 
-##### Scan values not already in the kinematics output (CSAs, crest depth, urohyal, premaxilla)
+##### Scan values not already in the kinematics output (CSAs, crest depth, urohyal, premaxilla), and standard length
   # Match on family and animal ID the same way script 2 does (A prefix, periods instead of + and -)
   scan$Animal.ID <- as.character(scan$Animal.ID)
   noA <- which(substring(scan$Animal.ID, 1, 1) != 'A')
@@ -146,6 +150,20 @@ rm(list=ls())
                   IOP_ligament_CSA = "IOP_ligament_CSA", Protractor_hyoideus_CSA = "Protractor_hyoideus_CSA",
                   Supraoccipital_crest_depth = "Supraoccipital_crest_depth", Urohyal_length = "Urohyal_length",
                   Length_premaxilla_asc_arm = "Length_premaxilla_asc_arm")
+  # Standard length (see slColumn)
+  if(slColumn %in% names(scan)) {
+    kin$SL <- suppressWarnings(as.numeric(scan[[slColumn]][scanRow]))
+    print(paste0("SL from the scan file ('", slColumn, "'): ", sum(!is.na(kin$SL)), " videos"))
+  } else if(slColumn %in% names(vidData)) {
+    kin$SL <- suppressWarnings(as.numeric(vidData[[slColumn]][kin$equivVidRow]))
+    print(paste0("SL from the data sheet ('", slColumn, "'): ", sum(!is.na(kin$SL)), " videos"))
+  } else {
+    kin$SL <- NA_real_
+    candidates <- unique(c(grep("SL|length|Length", names(scan), value = TRUE), grep("SL|length|Length", names(vidData), value = TRUE)))
+    print(paste0("No '", slColumn, "' column in the scan file or the data sheet: SL is NA. Set slColumn. Columns that might be it: ",
+                 paste(candidates, collapse = ", ")))
+  }
+
   for(nm in names(scanExtra)) {
     kin[[nm]] <- scan[[scanExtra[[nm]]]][scanRow]
   }
@@ -341,6 +359,7 @@ rm(list=ls())
     out[out$buccal_excluded, c(paste0(timeVarsBuccal, "_tmax"), strikeVarsBuccal)] <- NA
     for(v in strikeVarsFlow)   out[[v]] <- flow[[flowName(v, flowParts(flowNow)[["means"]])]][flowRow]
     for(v in fishVars)         out[[v]] <- kin[[v]]
+    out$SL <- kin$SL   # standard length, for the QTL size corrections (not in the SEM)
     out$Neurocranium_tip_disp_Max <- out$Neurocranium_Max * out$Neurocranium_length   # as Neurocranium_tip_disp_tmax (identity in script 5)
     for(v in flagVars)         out[[v]] <- kin[[v]]
 
