@@ -1011,7 +1011,12 @@ library(lmerTest)
       flowInd <- data.frame(Fish_ID = d$Fish_ID, kinematic = d$V_buccal_vel_tmax / d$A_tmax, PIV_static = d$U_flow_ff_tmax)
       mfKey <- paste(variants$timeBasis[vNow], variants$widthModel[vNow], "mouthFrontCorrK", sep = "|")   # mouth-front flow, k = mullerExponentAlt
       if(mfKey %in% names(allDatasets)) {
-        flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ff_tmax[match(d$vidName, allDatasets[[mfKey]]$vidName)]
+        mfRows <- match(d$vidName, allDatasets[[mfKey]]$vidName)
+        flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ff_tmax[mfRows]
+        # Centred models: centre the mouth-front flow the same way as the static flow (earth-frame part / PIV_scale, + ram)
+        if(variants$pressure[vNow] %in% c("centered", "centeredK")) {
+          flowInd$PIV_mouthFront <- allDatasets[[mfKey]]$U_flow_ef_meas_tmax[mfRows] / d$PIV_scale + d$U_ram_tmax
+        }
       }
       indNames <- setdiff(names(flowInd), "Fish_ID")
       flowInd[indNames] <- lapply(flowInd[indNames], function(v) ifelse(is.finite(v), v, NA))
