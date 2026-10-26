@@ -13,7 +13,9 @@ Every step that involves an SEM is in script 5. Script 4 (`4_SEM_dataset.R`) onl
 1. lavaan, measurement model only: `Effort =~ Neurocranium_Adj_vel_mean + Hyoid_Adj_vel_mean + T`, FIML (`missing = "ml"`), indicators standardized.
    - Just-identified with 3 indicators (df = 0): no fit test, so check the loadings.
 2. **Bartlett factor scores** (`lavPredict(..., method = "Bartlett")`) = `Effort_score`. They are unbiased for the factor, so slopes on Effort aren't attenuated (regression scores would be).
-3. `Effort_score ~ Prey_num + Satiation + Fasting_time` and Effort's arrows into `Hyoid_vel_tmax` and `Neurocranium_linear_vel_tmax` are ordinary path equations.
+3. Effort's arrows into `Hyoid_vel_tmax`, `Neurocranium_linear_vel_tmax` and the timing variables are ordinary path equations.
+   - Effort is split into `Behavior_fish` (the fish mean) and `Effort_strike`; both are exogenous.
+   - `Effort_score ~ Prey_num + Satiation + Fasting_time` is off by default (`effortCovariates`): these explained ~2% of strike effort.
 4. The bootstrap redoes step 1 in every resample, so the error in the scores is in the confidence intervals.
 
 ## Decisions in the draft to check
@@ -67,3 +69,14 @@ Only `noWidth` (no lateral expansion of the buccal cavity) is used: it is the de
 - Script 2: the bar model's expansion reached ~1.5 × W_head, and its retraction fit was poor (R² ≈ 0).
 - Script 3: within videos, noWidth tracked the measured flow best (shape and volume rate). noRetract predicted about half the measured volume rate.
 - Scripts 2 and 3 still calculate all three models as diagnostics. To compare them in the SEM, add `"main"` / `"noRetract"` to script 4's `widthModels` and set `compareWidthModels <- TRUE` in script 5.
+
+## Strike maxima (`maxArrows`)
+
+The d-separation test flagged the strike maxima as missing predictors of the values at tmax and of the strike means. So each of these equations gets its maximum as a predictor:
+- `A_Max` → `R_tmax` and `R_t_mean`
+- `Protrusion_Max` → `Protrusion_tmax` and `Protrusion_t_mean`
+- `Hyoid_Max` → `Hyoid_depression_tmax` and `Hyoid_depression_t_mean`
+- `Mandible_depression_Max` → `Mandible_depression_t_mean`
+- `Neurocranium_Max` → `Neurocranium_rotation_tmax`
+
+The maxima are exogenous. `Mandible_depression_tmax` is an identity, so it gets no arrow. On the peak time basis these arrows are left out, because there the `_tmax` columns are the maxima themselves.

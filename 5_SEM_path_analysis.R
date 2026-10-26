@@ -123,7 +123,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmax_main_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
+  bootVariants <- c("tmax_noWidth_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -144,9 +144,27 @@ library(lmerTest)
     # Behavior_fish: each fish's mean Effort score over its strikes = how hard that fish consistently strikes (its striking style).
       # It also carries anything else consistent about the fish that the model doesn't include (e.g. genetics, unmeasured morphology)
     # Effort_strike: each strike's Effort score minus its fish's mean = strike-to-strike effort
-    # Both feed every equation Effort feeds. Prey_num, Satiation and Fasting_time predict Effort_strike; Behavior_fish is exogenous
+    # Both feed every equation Effort feeds. Behavior_fish is exogenous; so is Effort_strike unless effortCovariates
     # FALSE = one Effort_score, as before
   splitEffort <- TRUE   ### CHANGE
+
+  # Prey_num, Satiation and Fasting_time as predictors of Effort (the Effort_score equation below)
+    # FALSE (default): left out. They explained ~2% of strike-to-strike effort (R^2 0.02), so Effort is exogenous
+    # (its strike part comes straight from the measurement model)
+  effortCovariates <- FALSE   ### CHANGE
+
+  # Strike maxima as predictors of the values at tmax and the strike means (the d-separation test flagged them as missing)
+    # Name = response, value = the maximum added to its equation. A_Max (gape area) stands in for the gape maximum (A is proportional to R)
+    # Mandible_depression_tmax is an identity (from Mandible_ang_tmax), so it can't take an arrow
+    # Left out on the peak time basis: there the _tmax columns ARE the strike maxima (e.g. Hyoid_depression_tmax = Hyoid_Max)
+  maxArrows <- c(R_tmax                     = "A_Max",
+                 R_t_mean                   = "A_Max",
+                 Protrusion_tmax            = "Protrusion_Max",
+                 Protrusion_t_mean          = "Protrusion_Max",
+                 Hyoid_depression_tmax      = "Hyoid_Max",
+                 Hyoid_depression_t_mean    = "Hyoid_Max",
+                 Mandible_depression_t_mean = "Mandible_depression_Max",
+                 Neurocranium_rotation_tmax = "Neurocranium_Max")   ### CHANGE  character(0) = none
 
   # Reference values for the linearization (docs: "90% of max to avoid edge fitting problems")
     # "fracMax": refFrac x the value with the largest magnitude (keeps the sign, so pressure uses 90% of the most negative)
@@ -235,7 +253,7 @@ library(lmerTest)
     # Linear velocity of the maxilla tip = angular velocity x maxilla length (*). Measured separately (tip landmark), so fitted
     Maxilla_linear_vel_tmax  = "I(Maxilla_length * Maxilla_angular_vel_tmax)",
 
-    # Effort (#), on the factor scores from step 1
+    # Effort (#), on the factor scores from step 1. Only used when effortCovariates
     Effort_score = "Prey_num + Satiation + Fasting_time",
 
     # Effort drives the timing of the strike (#). T is also an Effort indicator, so its equation restates the measurement model
@@ -325,12 +343,20 @@ library(lmerTest)
 
 ##### Equations for one model: KT columns filled in and the structure's changes applied
   pathEqsBase <- pathEqs
-  variantEquations <- function(ktNow, structureNow) {
+  variantEquations <- function(ktNow, structureNow, timeNow) {
     ktCols <- list(dynamic = c(OralKT = "Oral_KT_tmax", OpercularKT = "Opercular_KT_tmax"),
                    static  = c(OralKT = "Oral_4bar_KT", OpercularKT = "Opercular_4bar_KT"))[[ktNow]]
     if(is.null(ktCols)) stop("ktVersion must be 'dynamic' or 'static': ", ktNow)
     if(!(structureNow %in% names(structures))) stop("No structure called '", structureNow, "' in structures")
     eqs <- pathEqsBase
+    if(!effortCovariates) eqs <- eqs[names(eqs) != "Effort_score"]
+    # Strike maxima (maxArrows), except on the peak time basis
+    if(timeNow != "peak") {
+      for(nm in names(maxArrows)) {
+        if(!(nm %in% names(eqs))) stop("maxArrows adds to ", nm, ", which has no equation")
+        eqs[nm] <- paste(eqs[[nm]], "+", maxArrows[[nm]])
+      }
+    }
     changes <- structures[[structureNow]]
     for(nm in names(changes)) {
       if(!is.na(changes[[nm]]) && grepl("^\\s*\\+", changes[[nm]])) {
@@ -803,7 +829,7 @@ library(lmerTest)
     d <- allDatasets[[variants$dataKey[vNow]]]
 
     # This model's equations and path structure (used by the functions above)
-    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
+    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow], variants$timeBasis[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
              envir = globalenv())
     print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
 
