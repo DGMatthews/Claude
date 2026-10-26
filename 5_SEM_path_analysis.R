@@ -234,6 +234,11 @@ library(lmerTest)
     # Identities are then recalculated from their parents' reference values, so the reference point is consistent
   refType <- "fracMax"   ### CHECK
   refFrac <- 0.9
+  # Four-bar inputs (link lengths, rest angles) are taken at their medians whatever refType: each at 90% of its own maximum
+    # gives a linkage that can't close (no real four-bar solution), so the four-bar derivatives and the KT paths would be lost
+  refMedianVars <- c("Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
+                     "Operculum_length", "IOP_link_length", "RA_process_length", "Opercular_fixed_length",
+                     "Oral_theta2_rest", "Opercular_theta2_rest")   ### CHECK
 
   # Bootstrap
     # 0 = no bootstrap (no confidence intervals; everything else is the same)
@@ -715,8 +720,12 @@ library(lmerTest)
     checkFits <- lapply(setNames(names(checkEqs), names(checkEqs)), function(y) suppressMessages(fitEq(y, checkEqs[[y]], d)))
 
     # Reference row: every column at its reference value, then identities recalculated from their parents in path order
-    refRow <- as.data.frame(lapply(d[, setdiff(names(d), c("vidName", "Fish_ID", "Family", "Animal.ID", "timeBasis", "Hyoid_depth_source")), drop = FALSE],
-                                   function(x) if(is.numeric(x) || is.factor(x)) refValue(x) else NA))
+    refCols <- setdiff(names(d), c("vidName", "Fish_ID", "Family", "Animal.ID", "timeBasis", "Hyoid_depth_source"))
+    refRow <- as.data.frame(lapply(setNames(refCols, refCols), function(v) {
+      x <- d[[v]]
+      if(v %in% refMedianVars && is.numeric(x)) return(if(any(is.finite(x))) median(x[is.finite(x)]) else NA_real_)
+      if(is.numeric(x) || is.factor(x)) refValue(x) else NA
+    }))
     for(v in intersect(nodeOrder, names(activeIdentities))) {
       refRow[[v]] <- eval(parse(text = activeIdentities[[v]])[[1]], refRow, globalenv())
     }
@@ -929,6 +938,18 @@ library(lmerTest)
 #######################################
 #  Run each model                     #
 #######################################
+
+  # Check every model's equations against its dataset before fitting anything, so a missing column stops the run at the start
+  setupProblems <- unlist(lapply(seq_len(nrow(variants)), function(vNow) {
+    dNow <- allDatasets[[variants$dataKey[vNow]]]
+    msg <- tryCatch({
+      buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow], variants$timeBasis[vNow]),
+                     c(names(dNow), "Effort_score", "Effort_strike", "Behavior_fish"))
+      NULL
+    }, error = function(e) conditionMessage(e))
+    if(is.null(msg)) NULL else paste0(variants$label[vNow], ": ", msg)
+  }))
+  if(length(setupProblems) > 0) stop("Models that can't be built:\n", paste(setupProblems, collapse = "\n"))
 
   results    <- list()
   comparison <- data.frame()
