@@ -84,7 +84,10 @@ rm(list=ls())
   madFloorPressure  <- 0.2    ### CHANGE  Pa
   madFloorLandmark  <- 1      # px, same as the kinematics
   maxGap            <- 3
-  lambdaRefFlow     <- 5e-5   ### CHANGE  velocity and pressure traces. Tune like the kinematics (Lambda_tuning.R)
+  # Velocity and pressure have their own lambda: 3b_Flow_smoothing_check.R showed 5e-5 was a little weak for velocity
+    # (residuals still following frame-to-frame noise) and too strong for pressure (peak flattened). Recheck with 3b after changing
+  lambdaRefVelocity <- 1.5e-4   ### CHANGE  velocity traces (3 x the old 5e-5)
+  lambdaRefPressure <- 5e-6     ### CHANGE  pressure trace (0.1 x the old 5e-5). Only used for Pressure_tmax / tmaxVel; Max_sub_pressure is the PIV peak
   lambdaRefMarks    <- 5e-5   ### CHANGE  PIV mouth landmarks
   spanRef           <- 73
 
@@ -304,7 +307,7 @@ rm(list=ls())
 
       if(!is.null(tracesNow)) {
         pressureNow <- toKinFrames(tracesNow$pressure_time_ms, tracesNow$pressure_Pa, nNow, frameRate)
-        smP <- smoothTrace(pressureNow, timeNow, madFloorPressure, lambdaRefFlow)
+        smP <- smoothTrace(pressureNow, timeNow, madFloorPressure, lambdaRefPressure)
         flowData$Pressure_tmax[i]    <- traceAt(smP, tmaxNow, timeNow, 0)
         flowData$Pressure_tmaxVel[i] <- traceAt(smP, tmaxVelNow, timeNow, 0)
         flowTS$Pressure_t[i, 1:nNow] <- smP$y
@@ -449,7 +452,7 @@ rm(list=ls())
 
       for(verNow in names(velRaw)) {
 
-        smU <- smoothTrace(velRaw[[verNow]], timeNow, madFloorVel, lambdaRefFlow)
+        smU <- smoothTrace(velRaw[[verNow]], timeNow, madFloorVel, lambdaRefVelocity)
         flowTS[[paste0("U_flow_ef_meas_", verNow, "_t")]][i, 1:nNow] <- smU$y
 
         resNow <- setNames(rep(NA_real_, length(flowCols)), flowCols)
