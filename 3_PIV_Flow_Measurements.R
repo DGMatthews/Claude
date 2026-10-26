@@ -49,11 +49,14 @@ rm(list=ls())
 ##############
 
   # PIV output
-  pathPIVfinal     <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Final export'
+  # PIV results: the pipeline run with the pressure search in the jaw triangle (+ 0.25 x peak gape in front). Not the earlier
+    # "(velocity-anchored)(0.4 pressure shape)" run, whose pressure search went further from the mouth
+  pathPIVroot      <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (corr0.4, triangle pressure region, padded+edge20)'   ### CHANGE
+  pathPIVfinal     <- file.path(pathPIVroot, 'Final export')
   pivFilteredFile  <- file.path(pathPIVfinal, 'final_results_consistency_filtered.xlsx')   # decides which videos are included (same file the kinematics uses for tmax)
   pivResultsFile   <- file.path(pathPIVfinal, 'final_results_all_passed.xlsx')             # only used for the peak node positions (px)
   pathRawTraces    <- file.path(pathPIVfinal, 'Raw traces')
-  pathMouthFront   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Mouth front velocity traces/Traces'
+  pathMouthFront   <- file.path(pathPIVroot, 'Mouth front velocity traces', 'Traces')   ### CHECK  that this run has the mouth-front traces here
   pathMouthMarks   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/Mouth Landmarks'
 
   # File name endings (after the PIV video name, e.g. "IL5-PIV_ACxTRC_2024.01.21_F2_A14.46_E05_000000")   ### CHECK once the file lists are in
@@ -84,6 +87,12 @@ rm(list=ls())
   # Muller correction of the static node: only frames where the node is within these distances of the mouth (multiples of the gape radius R)
   maxZoverR       <- 2     ### CHANGE  along the strike axis. The correction factor is 2.8 at z = R, 5.9 at 1.5R, 11 at 2R (was 1.5)
   maxOffAxisOverR <- 1     ### CHANGE  sideways from the strike axis (Muller's model is for points on the axis)
+  # Pressure nodes behind the aperture plane (z < 0: inside the mouth, e.g. in the jaw triangle the PIV search includes)
+    # "uncorrected": kept, with no correction (factor 1, as the mouth-front velocity). "exclude": no corrected pressure (the old rule)
+  pressureBehindAperture <- "uncorrected"   ### CHANGE
+  # Pressure search rule of the PIV pipeline, for the check "Where the pressure nodes were": inside the jaw triangle (jaw tips and
+    # joint) or up to this share of the peak gape (jaw-tip distance) in front of it
+  pressureSearchFrontFrac <- 0.25   ### CHECK
 
   # Decay exponent of the correction: U_mouth = U_node * (1 + (z/R)^2)^k. Muller's model (ideal circular aperture, on its axis): k = 1.5
     # The check "Muller exponent estimated within videos" (end of the script) estimates k from the data
@@ -283,6 +292,8 @@ rm(list=ls())
                          pressure_node_zR = NA_real_, velocity_node_zR = NA_real_,
                          pressure_node_offR = NA_real_, pressure_decay_g = NA_real_, Max_sub_pressure_corr = NA_real_,
                          pressure_decay_gK = NA_real_, Max_sub_pressure_corrK = NA_real_,
+                         pressure_node_z_px = NA_real_, pressure_node_gapeR_px = NA_real_, pressure_node_peakGapeR_px = NA_real_,
+                         pressure_node_inTriangle = NA, pressure_node_zOverPeakGape = NA_real_, pressure_excluded_reason = NA_character_,
                          static_node_zR_tmax = NA_real_, static_node_zR_tmaxVel = NA_real_,
                          static_node_offR_tmax = NA_real_, static_node_offR_tmaxVel = NA_real_,
                          static_Muller_factor_tmax = NA_real_, static_Muller_factor_tmaxVel = NA_real_,
@@ -442,9 +453,29 @@ rm(list=ls())
           flowData$pressure_node_zR[i]   <- dPress$zR[kPress]
           flowData$pressure_node_offR[i] <- dPress$offR[kPress]
 
-          # Peak pressure corrected to the aperture: p_node / g(s), only within the distance limits
+          # Where the node was in pixels, and against the PIV search rule (inside the jaw triangle, or within
+            # pressureSearchFrontFrac x the peak gape in front of it), for the check "Where the pressure nodes were"
+          flowData$pressure_node_z_px[i]         <- dPress$zR[kPress] * gapeR[kPress]
+          flowData$pressure_node_gapeR_px[i]     <- gapeR[kPress]
+          framesP <- if(is.na(kin$startFrame[i]) || is.na(kin$endFrame[i])) seq_len(nNow) else intersect(kin$startFrame[i]:kin$endFrame[i], seq_len(nNow))
+          flowData$pressure_node_peakGapeR_px[i] <- suppressWarnings(max(gapeR[framesP], na.rm = TRUE))   # largest gape over the strike
+          flowData$pressure_node_zOverPeakGape[i] <- flowData$pressure_node_z_px[i] / (2 * flowData$pressure_node_peakGapeR_px[i])
+          triX <- c(markSm$uj_x[kPress], markSm$lj_x[kPress], markSm$hinge_x[kPress])
+          triY <- c(markSm$uj_y[kPress], markSm$lj_y[kPress], markSm$hinge_y[kPress])
+          if(all(is.finite(c(triX, triY)))) {
+            crossNow <- function(a, b) (triX[b] - triX[a]) * (pivNow$pressure_peak_y_px - triY[a]) - (triY[b] - triY[a]) * (pivNow$pressure_peak_x_px - triX[a])
+            sidesNow <- c(crossNow(1, 2), crossNow(2, 3), crossNow(3, 1))
+            flowData$pressure_node_inTriangle[i] <- all(sidesNow >= 0) || all(sidesNow <= 0)
+          }
+
+          # Peak pressure corrected to the aperture: p_node / g(s), within the distance limits
+            # Behind the aperture plane (s < 0): no correction (factor 1) with pressureBehindAperture = "uncorrected"
           sNow <- dPress$zR[kPress]
-          if(!is.na(sNow) && sNow >= 0 && sNow <= maxZoverR && dPress$offR[kPress] <= maxOffAxisOverR) {
+          behindNow <- !is.na(sNow) && sNow < 0 && pressureBehindAperture == "uncorrected"
+          if(behindNow) sNow <- 0
+          flowData$pressure_excluded_reason[i] <- if(is.na(sNow)) "no distance (landmarks)" else if(sNow < 0) "behind the aperture" else
+            if(sNow > maxZoverR) "beyond maxZoverR" else if(!(dPress$offR[kPress] <= maxOffAxisOverR) %in% TRUE) "beyond maxOffAxisOverR" else "kept"
+          if(!is.na(sNow) && sNow >= 0 && sNow <= maxZoverR && (behindNow || dPress$offR[kPress] <= maxOffAxisOverR)) {
             flowData$pressure_decay_g[i]      <- 1 - sNow / sqrt(1 + sNow^2)
             flowData$Max_sub_pressure_corr[i] <- flowData$Max_sub_pressure[i] / flowData$pressure_decay_g[i]
             # Second decay (pressureDecayAlt)
@@ -800,6 +831,23 @@ rm(list=ls())
   print(paste0("Peak pressure corrected to the aperture for ", sum(!is.na(flowData$Max_sub_pressure_corr)), " of ",
                sum(!is.na(flowData$Max_sub_pressure)), " videos with pressure (node in front of the mouth, within maxZoverR and maxOffAxisOverR)"))
   print(summary(1 / flowData$pressure_decay_g))    # correction factor
+
+  # Where the pressure nodes were, against the PIV pipeline's search rule (pressureSearchFrontFrac)
+    # By that rule every node is inside the jaw triangle or at most pressureSearchFrontFrac x the peak gape in front of it
+    # (zOverPeakGape = distance in front of the aperture / peak jaw-tip distance). Many nodes outside it mean this script's geometry
+    # doesn't match the pipeline's (coordinate systems, the frame of the peak, or how the box was defined)
+  hasP <- !is.na(flowData$Max_sub_pressure)
+  print("--- Pressure nodes: why videos with pressure have no corrected value")
+  print(table(flowData$pressure_excluded_reason[hasP], useNA = "ifany"))
+  print("Distance in front of the aperture / peak gape (search rule: <= pressureSearchFrontFrac; negative = behind the aperture)")
+  print(summary(flowData$pressure_node_zOverPeakGape[hasP]))
+  inRule <- flowData$pressure_node_inTriangle %in% TRUE |
+    (flowData$pressure_node_zOverPeakGape >= 0 & flowData$pressure_node_zOverPeakGape <= pressureSearchFrontFrac) %in% TRUE
+  print(paste0("Nodes inside the search area by this script's geometry: ", sum(inRule & hasP), " of ",
+               sum(hasP & !is.na(flowData$pressure_node_zOverPeakGape)), " (inside the jaw triangle: ",
+               sum(flowData$pressure_node_inTriangle[hasP] %in% TRUE), ")"))
+  print("Gape radius at the pressure peak / peak gape radius (PIV landmarks)")
+  print(summary(flowData$pressure_node_gapeR_px[hasP] / flowData$pressure_node_peakGapeR_px[hasP]))
   print(summary(flowData$Max_sub_pressure_corr))
   print(summary(flowData$velocity_node_zR))
   print(summary(flowData$static_corrected_frac))   # share of strike frames where the static correction could be applied

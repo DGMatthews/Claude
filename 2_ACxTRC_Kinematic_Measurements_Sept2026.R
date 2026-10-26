@@ -105,7 +105,8 @@ vidDataTemp <- read.csv('C:/Users/Dave/Documents/RealDocuments/Science/Postdoc/A
 calTableTemp <- read.csv('N:/TRCxAC/Hybrid feeding project/HSV/Calibrations/CalValues.csv')
 calValueTable <- calTableTemp[which(calTableTemp$type=="Kine"),]
 
-Pressure_vel_Data <- read_excel("N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Final export/final_results_consistency_filtered.xlsx")
+# PIV results (tmax, tmaxVel and the peak values): the run with the pressure search in the jaw triangle. Same folder as script 3's pathPIVroot
+Pressure_vel_Data <- read_excel("N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (corr0.4, triangle pressure region, padded+edge20)/Final export/final_results_consistency_filtered.xlsx")
 
 #only keep video data from F2 fish, and where the fish actually fed
 vidData <- vidDataTemp[which(vidDataTemp$Generation=='F2'&vidDataTemp$Event!='-'),]
