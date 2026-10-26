@@ -11,7 +11,7 @@
     # _mouthFront: velocity sampled immediately in front of the mouth in every frame (mouth_front_velocity_trace files). Follows the mouth, but noisier
                      # It is the maximum within the jaw triangle plus a box 1.5 mm in front, so the point can be up to ~1.5 mm from the aperture
     # _mouthFrontCorr: _mouthFront corrected to the aperture with Muller's flow model (below), frame by frame,
-                     # using where the maximum was in each frame (position columns in the mouth-front files)
+                     # using where the maximum was (position columns in the mouth-front files), smoothed over time first
                      # Points at or behind the aperture plane (z <= 0) aren't corrected (factor 1)
     # _static:     velocity at the fixed node where peak velocity happened (peak_node_traces files), corrected to the mouth aperture with
                      # Muller et al.'s flow model: U_mouth = U_node * (z^2 + R^2)^1.5 / R^3
@@ -89,6 +89,8 @@ rm(list=ls())
   lambdaRefVelocity <- 1.5e-4   ### CHANGE  velocity traces (3 x the old 5e-5)
   lambdaRefPressure <- 5e-6     ### CHANGE  pressure trace (0.1 x the old 5e-5). Only used for Pressure_tmax / tmaxVel; Max_sub_pressure is the PIV peak
   lambdaRefMarks    <- 5e-5   ### CHANGE  PIV mouth landmarks
+  lambdaRefFrontPos <- 5e-5   ### CHANGE  position of the mouth-front maximum (px), smoothed before the Muller factor so the factor
+                              # doesn't jump when the maximum moves to another PIV node. Stronger = smoother correction through the strike
   spanRef           <- 73
 
   # Strike means, covariances and total ingested volume need at least this fraction of Tstart-Tend frames with a velocity value
@@ -415,8 +417,10 @@ rm(list=ls())
                                                                      "' columns: no mouthFrontCorr. File: ", basename(fileFront)))
         }
         if(marksOK && frontPosOK) {
-          frontX <- toKinFrames(frontNow$time_ms, frontNow[[frontXcol]], nNow, frameRate)
-          frontY <- toKinFrames(frontNow$time_ms, frontNow[[frontYcol]], nNow, frameRate)
+          # Position of the maximum (px), cleaned and smoothed over time like the mouth landmarks
+            # The maximum can jump between PIV nodes from frame to frame; jumps are removed by the Hampel filter and the spline
+          frontX <- smoothTrace(toKinFrames(frontNow$time_ms, frontNow[[frontXcol]], nNow, frameRate), timeNow, madFloorLandmark, lambdaRefFrontPos)$y
+          frontY <- smoothTrace(toKinFrames(frontNow$time_ms, frontNow[[frontYcol]], nNow, frameRate), timeNow, madFloorLandmark, lambdaRefFrontPos)$y
           dFront <- nodeDist(frontX, frontY)
           frontFactor <- (pmax(dFront$zR, 0)^2 + 1)^1.5   # 1 at or behind the aperture plane
           useFront <- dFront$zR <= maxZoverR & dFront$offR <= maxOffAxisOverR
