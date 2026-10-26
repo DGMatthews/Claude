@@ -19,15 +19,24 @@ These files hold every variable in the final suction-feeding path model (SEM), i
   - `Effort_strike`: each strike's deviation from that mean.
 - **Assembly:** `4_SEM_dataset.R` combines all of these. `5_SEM_path_analysis.R` fits the model and adds the Effort scores. `6_SEM_exports.R` writes these files.
 
-**No size correction has been applied.** Correct for body size in the QTL analysis if needed.
+**No size correction has been applied.** Every sheet includes the fish's standard length, `SL` in mm, for the size corrections. It comes from script 4 (`slColumn`: the scan file, else the data sheet). `SL` is not part of the SEM.
 
 ## Files
 
 ### `QTL_traits_per_fish.csv` (use this for mapping)
 
-- **One row per fish** (`Fish_ID`), with `Family`, `Animal.ID` and `n_strikes` (strikes recorded).
-- **Each trait is the fish's mean over its strikes,** ignoring strikes where that trait is missing. Fish-level traits (morphology) are the same in every strike, so the mean is simply the value.
+- **One row per fish** (`Fish_ID`), with `Family`, `Animal.ID`, `SL` and `n_strikes` (strikes recorded).
+- **Each strike-level trait is the fish's maximum over its strikes:** the largest value in the trait's usual direction.
+  - For traits that are mostly negative, that means the most negative value. For example, `Max_sub_pressure`, where more negative = stronger suction.
+  - `max_direction` in the variable list says which applies.
+- **Each trait's maximum can come from a different strike,** so a row describes each fish's capacity in every trait, not one particular strike.
+- **Fish-level traits** (morphology) are the same in every strike, so the value is simply the value.
 - **NA:** a trait is NA when the fish has no strike with that value. Coverage differs a lot between traits; see `n_fish_with_value` below. Pressure and flow exist for fewer fish than kinematics.
+- **Setting:** this is `perFishSummary = "max"` in `6_SEM_exports.R`. With `"mean"`, the main file holds means instead.
+
+### `QTL_traits_per_fish_mean.csv`
+
+The same, with each trait's mean over the fish's strikes instead of its maximum, for comparison. If `perFishSummary = "mean"`, this file is `QTL_traits_per_fish_max.csv` instead.
 
 ### `QTL_traits_per_strike.csv`
 
@@ -38,17 +47,21 @@ These files hold every variable in the final suction-feeding path model (SEM), i
 
 | column | meaning |
 |---|---|
-| `variable` | the column name in the trait sheets |
+| `variable` | the column name in the trait sheets (`SL` is listed with role `size (not in the SEM)`) |
 | `role` | `exogenous` (no arrows in), `fitted` (has an equation), `identity` (calculated from other variables), `outcome` (performance), `Effort indicator`, `latent score` |
 | `group_guess` | rough category from the name (morphology, kinematics, timing, buccal volume, flow, ram, effort, measurement covariate, performance) |
 | `level` | `fish` = one value per fish (morphology); `strike` = varies between strikes |
 | `n_strikes_with_value`, `n_fish_with_value` | coverage |
-| `sd_strikes`, `sd_fish_means` | spread across strikes, and across fish means |
+| `fish_value` | what `QTL_traits_per_fish.csv` holds for the trait: `value` (fish-level), `maximum over strikes` or `mean over strikes` |
+| `max_direction` | `largest` or `most negative`: which end the maximum takes (traits whose median is negative take the most negative value) |
+| `sd_strikes`, `sd_fish` | spread across strikes, and across fish (of the per-fish values) |
 | `equation` | how the variable is predicted or calculated in the model (empty for exogenous variables) |
 
 ## How to use them
 
 1. **Map every trait** in `QTL_traits_per_fish.csv`. Identity traits (e.g. `A_tmax`, the four-bar angles) are exact functions of other traits, so expect their QTL to overlap with the QTL of their inputs.
-2. **Report each QTL peak's percentage of variance explained (PVE)** on the same fish-mean scale, and its additive allelic effect, both raw and in SD units of the trait. The total-effects export (`total_effects.csv`, see `SEM_export_total_effects.md`) turns these into predicted effects on pressure and ingested volume.
-3. **Strike-level traits that were averaged** (kinematics, flow, pressure) carry measurement noise that shrinks with more strikes. `n_strikes` can be used as a weight.
+2. **Report each QTL peak's percentage of variance explained (PVE)** on the same per-fish scale (maxima), and its additive allelic effect, both raw and in SD units of the trait. The total-effects export (`total_effects.csv`, see `SEM_export_total_effects.md`) turns these into predicted effects on pressure and ingested volume.
+3. **Strike-level traits carry measurement noise** (kinematics, flow, pressure).
+   - A maximum over more strikes tends to be larger, and less noisy about the fish's capacity, so `n_strikes` can be used as a covariate or a weight.
+   - The mean sheet is the alternative if the maxima look driven by single outlying strikes.
 4. **Exclude the measurement covariates from biological interpretation.** `pressure_node_zR` and `static_node_zR_tmax` are how far the PIV measurement point was from the mouth, so they describe the measurement rather than the fish. Mapping them is a useful check for confounds.

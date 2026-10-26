@@ -34,6 +34,11 @@ rm(list=ls())
     # (capped at 1). Weight 1 = black, 0 = white. Identity arrows (calculations, no error) are drawn dashed
   greyRefQuantile <- 0.95   ### CHANGE
 
+  # One value per fish for the QTL sheet (and the fish-level standardized total effects): each trait's maximum over the fish's strikes
+    # ("max"; the largest value in the trait's usual direction: the most negative for traits that are mostly negative, such as
+    # Max_sub_pressure) or the mean ("mean"). Both sheets are written; this one is QTL_traits_per_fish.csv
+  perFishSummary <- "max"   ### CHANGE  "max" or "mean"
+
 
 #####################
 #  Read the results #
@@ -214,21 +219,38 @@ rm(list=ls())
   # Every variable in the model, including the inputs of identities and the Effort indicators and scores
   traitVars <- unique(c(nodeOrder, effortIndicators, intersect(c("Effort_score", "Effort_strike", "Behavior_fish"), names(d))))
   traitVars <- traitVars[traitVars %in% names(d)]
-  idCols <- intersect(c("vidName", "Fish_ID", "Family", "Animal.ID"), names(d))
+  # Standard length (script 4's SL, not in the SEM): next to the IDs, for the size corrections
+  idCols <- intersect(c("vidName", "Fish_ID", "Family", "Animal.ID", "SL"), names(d))
+  if(!("SL" %in% names(d)) || all(is.na(d$SL))) print("No standard length (SL) in the data: set slColumn in script 4 and rerun scripts 4 and 5")
 
   # Per strike
   perStrike <- d[, c(idCols, traitVars), drop = FALSE]
   write.csv(perStrike, file.path(outNow, "QTL_traits_per_strike.csv"), row.names = FALSE)
 
-  # Per fish: mean over the fish's strikes (fish-level variables are the same in every strike, so their mean is the value)
+  # Per fish: each trait's maximum over the fish's strikes, or its mean (perFishSummary)
+    # Maximum = the largest value in the trait's usual direction: the most negative for traits whose median is negative (e.g. pressure)
+    # Fish-level variables (morphology) are the same in every strike, so both give the value. Each trait's maximum can come
+    # from a different strike
   fishIDs <- sort(unique(d$Fish_ID))
-  perFish <- data.frame(Fish_ID = fishIDs, stringsAsFactors = FALSE)
-  for(v in intersect(c("Family", "Animal.ID"), names(d))) perFish[[v]] <- d[[v]][match(fishIDs, d$Fish_ID)]
-  perFish$n_strikes <- as.vector(table(d$Fish_ID)[fishIDs])
-  for(v in traitVars) {
-    if(is.numeric(d[[v]])) perFish[[v]] <- as.vector(fishMeanOf(d[[v]])[fishIDs])
+  fishMaxOf <- function(x) {
+    if(!is.numeric(x)) return(NULL)
+    negNow <- isTRUE(median(x, na.rm = TRUE) < 0)
+    tapply(x, d$Fish_ID, function(v) { v <- v[is.finite(v)]; if(length(v) == 0) NA_real_ else if(negNow) min(v) else max(v) })
   }
+  perFishOf <- function(summaryNow) {
+    out <- data.frame(Fish_ID = fishIDs, stringsAsFactors = FALSE)
+    for(v in intersect(c("Family", "Animal.ID", "SL"), names(d))) out[[v]] <- d[[v]][match(fishIDs, d$Fish_ID)]
+    out$n_strikes <- as.vector(table(d$Fish_ID)[fishIDs])
+    for(v in traitVars) {
+      if(is.numeric(d[[v]])) out[[v]] <- as.vector((if(summaryNow == "max") fishMaxOf(d[[v]]) else fishMeanOf(d[[v]]))[fishIDs])
+    }
+    out
+  }
+  if(!(perFishSummary %in% c("max", "mean"))) stop("perFishSummary must be 'max' or 'mean'")
+  perFish      <- perFishOf(perFishSummary)
+  perFishOther <- perFishOf(setdiff(c("max", "mean"), perFishSummary))
   write.csv(perFish, file.path(outNow, "QTL_traits_per_fish.csv"), row.names = FALSE)
+  write.csv(perFishOther, file.path(outNow, paste0("QTL_traits_per_fish_", setdiff(c("max", "mean"), perFishSummary), ".csv")), row.names = FALSE)
 
   # Variable list: role, level (fish = one value per fish; strike = varies between strikes), coverage and spread
   varList <- data.frame(variable = traitVars, stringsAsFactors = FALSE)
@@ -243,10 +265,18 @@ rm(list=ls())
   varList$n_strikes_with_value <- sapply(traitVars, function(v) sum(!is.na(d[[v]])))
   varList$n_fish_with_value    <- sapply(traitVars, function(v) sum(!is.na(perFish[[v]])))
   varList$sd_strikes    <- sapply(traitVars, function(v) sdOf(d[[v]]))
-  varList$sd_fish_means <- sapply(traitVars, function(v) sdOf(perFish[[v]]))
+  varList$fish_value <- ifelse(varList$level == "fish", "value", ifelse(perFishSummary == "max", "maximum over strikes", "mean over strikes"))
+  varList$max_direction <- sapply(traitVars, function(v) if(is.numeric(d[[v]]) && isTRUE(median(d[[v]], na.rm = TRUE) < 0)) "most negative" else "largest")
+  varList$sd_fish <- sapply(traitVars, function(v) sdOf(perFish[[v]]))
   varList$equation <- sapply(traitVars, function(v) if(v %in% names(pathEqs)) pathEqs[[v]] else if(v %in% names(activeIdentities)) activeIdentities[[v]] else "")
+  if("SL" %in% names(d)) {
+    varList[nrow(varList) + 1, c("variable", "role", "group_guess", "level", "fish_value")] <- c("SL", "size (not in the SEM)", "size", "fish", "value")
+    varList[nrow(varList), c("n_strikes_with_value", "n_fish_with_value", "sd_strikes", "sd_fish")] <-
+      c(sum(!is.na(d$SL)), sum(!is.na(perFish$SL)), sdOf(d$SL), sdOf(perFish$SL))
+  }
   write.csv(varList, file.path(outNow, "QTL_variable_list.csv"), row.names = FALSE)
-  print(paste0("QTL sheets: ", length(traitVars), " variables, ", nrow(perStrike), " strikes, ", nrow(perFish), " fish"))
+  print(paste0("QTL sheets: ", length(traitVars), " variables, ", nrow(perStrike), " strikes, ", nrow(perFish), " fish (per-fish values: ", perFishSummary, ")",
+               if("SL" %in% names(d)) paste0("; SL for ", sum(!is.na(perFish$SL)), " fish") else ""))
 
 
 #################################
@@ -256,7 +286,8 @@ rm(list=ls())
   # Total effect of every variable on each outcome = sum over all paths of the products of the direct effects (linearized)
     # total: raw units (outcome units per unit of the variable)
     # total_std: x SD of the variable / SD of the outcome, both across strikes (as in script 5), with bootstrap interval
-    # total_std_fish: the same with the SDs of the fish means (the scale of a QTL analysis on fish means)
+    # total_std_fish: the same with the SDs across fish of the per-fish values in QTL_traits_per_fish.csv (maxima or means,
+      # perFishSummary): the scale of a QTL analysis on those values
     # var_share_multiplier(_fish) = total_std(_fish)^2: share of the outcome's variance per unit share of the variable's variance,
       # if the variable acts on the outcome only through the model's paths (see SEM_export_total_effects.md)
   sdFish <- sapply(nodeOrder, function(v) if(v %in% names(perFish)) sdOf(perFish[[v]]) else NA_real_)
