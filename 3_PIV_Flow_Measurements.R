@@ -24,6 +24,11 @@
   # Videos included: those in final_results_consistency_filtered.xlsx (the kinematics script reads tmax, tmaxVel and the peak values from it)
     # final_results_all_passed.xlsx only supplies where the peak velocity and pressure nodes were (px)
   # Pressure: Max_sub_pressure = the PIV pipeline's peak pressure (Pa, negative = sub-ambient), only for videos whose pressure analysis passed
+    # Max_sub_pressure_corr: the same peak corrected to the aperture with Muller's flow model
+      # Muller's velocity profile U(z) = U R^3 / (z^2 + R^2)^1.5 comes from the potential U R (1 - z / sqrt(z^2 + R^2)) on the strike axis,
+      # so the unsteady pressure term d/dt(U R) falls with distance as g(s) = 1 - s / sqrt(1 + s^2), s = z / R
+      # The 1/2 rho u^2 term falls as (1 + s^2)^-3 (3% of its aperture value at 1.5R), so at the node the pressure is almost all the
+      # unsteady term, and p_aperture = p_node / g(s). Same distance limits as the velocity (maxZoverR, maxOffAxisOverR, node in front)
   # Flow is a speed (magnitude, m/s from the PIV, converted to mm/s), assumed to be along the strike axis like U_ram
   # U_flow_ff = U_flow_ef_meas + U_ram (fish frame: speed of water entering the mouth)
     # The measured flow is water moving toward the fish and ram is the fish moving toward the water, so the two add
@@ -237,6 +242,7 @@ rm(list=ls())
                          Max_sub_pressure = NA_real_, pressure_peak_time = NA_real_,
                          Pressure_tmax = NA_real_, Pressure_tmaxVel = NA_real_,
                          pressure_node_zR = NA_real_, velocity_node_zR = NA_real_,
+                         pressure_node_offR = NA_real_, pressure_decay_g = NA_real_, Max_sub_pressure_corr = NA_real_,
                          static_node_zR_tmax = NA_real_, static_node_zR_tmaxVel = NA_real_,
                          static_node_offR_tmax = NA_real_, static_node_offR_tmaxVel = NA_real_,
                          static_Muller_factor_tmax = NA_real_, static_Muller_factor_tmaxVel = NA_real_,
@@ -367,7 +373,16 @@ rm(list=ls())
         kPress <- round(pivNow$pressure_peak_time_ms / 1000 * frameRate) + 1
         kVel   <- round(pivNow$max_velocity_time_ms / 1000 * frameRate) + 1
         if(!is.na(kPress) && kPress >= 1 && kPress <= nNow) {
-          flowData$pressure_node_zR[i] <- nodeDist(pivNow$pressure_peak_x_px, pivNow$pressure_peak_y_px)$zR[kPress]
+          dPress <- nodeDist(pivNow$pressure_peak_x_px, pivNow$pressure_peak_y_px)
+          flowData$pressure_node_zR[i]   <- dPress$zR[kPress]
+          flowData$pressure_node_offR[i] <- dPress$offR[kPress]
+
+          # Peak pressure corrected to the aperture: p_node / g(s), only within the distance limits
+          sNow <- dPress$zR[kPress]
+          if(!is.na(sNow) && sNow >= 0 && sNow <= maxZoverR && dPress$offR[kPress] <= maxOffAxisOverR) {
+            flowData$pressure_decay_g[i]      <- 1 - sNow / sqrt(1 + sNow^2)
+            flowData$Max_sub_pressure_corr[i] <- flowData$Max_sub_pressure[i] / flowData$pressure_decay_g[i]
+          }
         }
         if(!is.na(kVel) && kVel >= 1 && kVel <= nNow) {
           flowData$velocity_node_zR[i] <- nodeDist(pivNow$max_velocity_x_px, pivNow$max_velocity_y_px)$zR[kVel]
@@ -568,6 +583,10 @@ rm(list=ls())
   # How far the peak nodes were from the mouth at their peaks (multiples of the gape radius R)
     # Pressure is fine anywhere (the outcome is its own peak). For velocity, values above maxZoverR can't be corrected to the aperture at the peak
   print(summary(flowData$pressure_node_zR))
+  print(paste0("Peak pressure corrected to the aperture for ", sum(!is.na(flowData$Max_sub_pressure_corr)), " of ",
+               sum(!is.na(flowData$Max_sub_pressure)), " videos with pressure (node in front of the mouth, within maxZoverR and maxOffAxisOverR)"))
+  print(summary(1 / flowData$pressure_decay_g))    # correction factor
+  print(summary(flowData$Max_sub_pressure_corr))
   print(summary(flowData$velocity_node_zR))
   print(summary(flowData$static_corrected_frac))   # share of strike frames where the static correction could be applied
   print(summary(flowData$front_corrected_frac))    # same for the mouth-front correction (frames beyond maxZoverR / maxOffAxisOverR are NA)
@@ -593,8 +612,12 @@ rm(list=ls())
                 ratio = sapply(predNames, function(p) median(kin[[p]] / measNow, na.rm = TRUE))))
   }
 
-  # Total ingested volume: decomposition vs. direct integral (should be close)
-  print(summary(flowData$Total_ingested_volume / flowData$Total_ingested_volume_direct))
+  # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;
+    # above 1 when frames are missing, since the decomposition uses the full duration T)
+  for(v in versions) {
+    print(paste0("--- ingested volume, decomposition / direct: ", v))
+    print(summary(flowData[[paste0("Total_ingested_volume_", v)]] / flowData[[paste0("Total_ingested_volume_direct_", v)]]))
+  }
 
 
 ##########
