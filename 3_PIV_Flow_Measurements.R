@@ -259,7 +259,7 @@ rm(list=ls())
     # shapeCor: correlation over the strike frames (does the predicted flow rise and fall with the measured flow?)
     # shapeLag / shapeLagCor: the shift (frames, + = measured later) between -maxShapeLag and +maxShapeLag with the highest correlation
     # shapeRatio: median predicted / median measured (size; 1 = right on average)
-  maxShapeLag   <- 10   # frames (20 ms at 500 fps)
+  maxShapeLag   <- 30   # frames (60 ms at 500 fps)
   widthSuffixes <- c(main = "", noRetract = "_noRetract", noWidth = "_noWidth")
   shapeMetrics  <- c("shapeCor", "shapeLag", "shapeLagCor", "shapeRatio")
   for(colNow in as.vector(outer(outer(shapeMetrics, names(widthSuffixes), paste, sep = "_"), versions, paste, sep = "_"))) {
@@ -661,6 +661,9 @@ rm(list=ls())
         median_cor = median(flowData[[paste0("shapeCor", colEnd)]], na.rm = TRUE),
         share_cor_over_0.5 = mean(flowData[[paste0("shapeCor", colEnd)]] > 0.5, na.rm = TRUE),
         median_best_lag = median(flowData[[paste0("shapeLag", colEnd)]], na.rm = TRUE),
+        lag_q25 = unname(quantile(flowData[[paste0("shapeLag", colEnd)]], 0.25, na.rm = TRUE)),
+        lag_q75 = unname(quantile(flowData[[paste0("shapeLag", colEnd)]], 0.75, na.rm = TRUE)),
+        share_lag_at_limit = mean(abs(flowData[[paste0("shapeLag", colEnd)]]) == maxShapeLag, na.rm = TRUE),
         median_best_lag_cor = median(flowData[[paste0("shapeLagCor", colEnd)]], na.rm = TRUE),
         median_ratio = median(flowData[[paste0("shapeRatio", colEnd)]], na.rm = TRUE))
     }), digits = 3)
