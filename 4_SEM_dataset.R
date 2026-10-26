@@ -140,10 +140,18 @@ rm(list=ls())
   }
 
   # Satiation = strike number for the fish (E01 = 1, E02 = 2, ...), from the end of the video name
-    # The name can end in the take number after it (_000000, _000001, ...), which is skipped
-  kin$Satiation <- suppressWarnings(as.numeric(sub("^.*_E([0-9]+)(_[0-9]{6})?$", "\\1", kin$vidName)))
+    # The name can have one more part after it (take or segment number: _000000, _000001, _S0001, ...), which is skipped
+    # Names that don't match: the Event column from the data sheet (E01, ...) instead
+  kin$Satiation <- suppressWarnings(as.numeric(sub("^.*_E([0-9]+)(_[A-Za-z0-9]+)?$", "\\1", kin$vidName)))
+  fromEvent <- is.na(kin$Satiation)
+  if("Event" %in% names(kin)) {
+    kin$Satiation[fromEvent] <- suppressWarnings(as.numeric(sub("^E", "", kin$Event[fromEvent])))
+  }
+  if(any(fromEvent & !is.na(kin$Satiation))) {
+    print(paste0(sum(fromEvent & !is.na(kin$Satiation)), " videos: Satiation from the data sheet's Event column (no _E## in the name)"))
+  }
   if(any(is.na(kin$Satiation))) {
-    print(paste0(sum(is.na(kin$Satiation)), " video names don't end in _E## (or _E##_######), so their Satiation is NA:"))
+    print(paste0(sum(is.na(kin$Satiation)), " videos have no strike number in the name or the Event column, so their Satiation is NA:"))
     print(head(kin$vidName[is.na(kin$Satiation)], 10))
   }
 
