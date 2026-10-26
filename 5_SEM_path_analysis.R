@@ -202,6 +202,8 @@ library(lmerTest)
     Mandible_dep_vel_tmax    = "Mandible_length * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
+    A_tmax                   = "(pi * W_jaw / 2) * R_tmax",       # gape area, as script 2 calculates it
+    A_vel_tmax               = "(pi * W_jaw / 2) * R_vel_tmax",
     Cov_A_Uflowff            = "(pi * W_jaw / 2) * Cov_R_Uflowff",
     Cov_R_Uflowff            = "Cov_R_Uflowefmeas + Cov_R_Uram",
     Neurocranium_angular_vel_tmax = "Neurocranium_linear_vel_tmax / Neurocranium_length",
@@ -444,7 +446,7 @@ library(lmerTest)
     d$Effort_score <- effortNow$score
     fits <- list()
     for(y in names(pathEqs)) {
-      fits[[y]] <- tryCatch(fitEq(y, pathEqs[[y]], d), error = function(e) stop("Equation ", y, " failed: ", conditionMessage(e)))
+      fits[[y]] <- tryCatch(suppressMessages(fitEq(y, pathEqs[[y]], d)), error = function(e) stop("Equation ", y, " failed: ", conditionMessage(e)))
       if(length(droppedCols(fits[[y]])) > 0) {
         message("Equation ", y, ": dropped collinear columns ", paste(droppedCols(fits[[y]]), collapse = ", "))
       }
@@ -488,7 +490,7 @@ library(lmerTest)
     d <- fitted$d
     effortNow <- fitted$effort
     fits <- fitted$fits
-    checkFits <- lapply(setNames(names(checkEqs), names(checkEqs)), function(y) fitEq(y, checkEqs[[y]], d))
+    checkFits <- lapply(setNames(names(checkEqs), names(checkEqs)), function(y) suppressMessages(fitEq(y, checkEqs[[y]], d)))
 
     # Reference row: every column at its reference value, then identities recalculated from their parents in path order
     refRow <- as.data.frame(lapply(d[, setdiff(names(d), c("vidName", "Fish_ID", "Family", "Animal.ID", "timeBasis", "Hyoid_depth_source")), drop = FALSE],
@@ -600,8 +602,8 @@ library(lmerTest)
         }
 
         res <- tryCatch({
-          m0 <- fitEq(y, pathEqs[[y]], dClaim, extraTerms = extraNow)
-          m1 <- fitEq(y, pathEqs[[y]], dClaim, extraTerms = c(extraNow, x))
+          m0 <- suppressMessages(fitEq(y, pathEqs[[y]], dClaim, extraTerms = extraNow))
+          m1 <- suppressMessages(fitEq(y, pathEqs[[y]], dClaim, extraTerms = c(extraNow, x)))
           a01 <- suppressMessages(anova(m0, m1))
           a01[2, ncol(a01)]
         }, error = function(e) { rowNow$note <<- paste("failed:", conditionMessage(e)); NA_real_ })
@@ -735,7 +737,9 @@ library(lmerTest)
     }
 
     eqSummary <- do.call(rbind, lapply(names(main$fits), function(y) {
-      data.frame(equation = y, n = nobs(main$fits[[y]]), t(rSquared(main$fits[[y]])))
+      data.frame(equation = y, n = nobs(main$fits[[y]]), t(rSquared(main$fits[[y]])),
+                 singular = inherits(main$fits[[y]], "merMod") && isSingular(main$fits[[y]]),   # TRUE: between-fish variance estimated as 0
+                 dropped = paste(droppedCols(main$fits[[y]]), collapse = ", "))
     }))
     print("Path equations (rows used and R^2 of each equation on its own measured predictors):")
     print(eqSummary, row.names = FALSE, digits = 3)
