@@ -49,14 +49,11 @@ rm(list=ls())
 ##############
 
   # PIV output
-  # PIV results: the pipeline run with the pressure search in the jaw triangle (+ 0.25 x peak gape in front). Not the earlier
-    # "(velocity-anchored)(0.4 pressure shape)" run, whose pressure search went further from the mouth
-  pathPIVroot      <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (corr0.4, triangle pressure region, padded+edge20)'   ### CHANGE
-  pathPIVfinal     <- file.path(pathPIVroot, 'Final export')
+  pathPIVfinal     <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Final export'
   pivFilteredFile  <- file.path(pathPIVfinal, 'final_results_consistency_filtered.xlsx')   # decides which videos are included (same file the kinematics uses for tmax)
   pivResultsFile   <- file.path(pathPIVfinal, 'final_results_all_passed.xlsx')             # only used for the peak node positions (px)
   pathRawTraces    <- file.path(pathPIVfinal, 'Raw traces')
-  pathMouthFront   <- file.path(pathPIVroot, 'Mouth front velocity traces', 'Traces')   ### CHECK  that this run has the mouth-front traces here
+  pathMouthFront   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/PIV Output/Pressure-velocity peak pipeline v2 (velocity-anchored)(0.4 pressure shape)/Mouth front velocity traces/Traces'
   pathMouthMarks   <- 'N:/TRCxAC/Hybrid feeding project/HSV/PIV/Mouth Landmarks'
 
   # File name endings (after the PIV video name, e.g. "IL5-PIV_ACxTRC_2024.01.21_F2_A14.46_E05_000000")   ### CHECK once the file lists are in
