@@ -228,6 +228,7 @@ rm(list=ls())
   # One value per strike (no time)
   strikeVars <- c("Ttotal", "Ttpg", "Relative_ttpg", "Kinetic_Synchronization", "Time_hyoid", "Time_cranial",
                   "R_t_mean", "A_mean", "A_Max", "Protrusion_t_mean", "Mandible_depression_t_mean", "Hyoid_depression_t_mean",
+                  "Hyoid_Max", "Protrusion_Max",   # strike maxima, for the V_buccal_Max equation in script 5
                   "U_ram_mean", "Cov_R_Uram",
                   "Hyoid_vel_mean", "Neurocranium_linear_vel_mean", "Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean",
                   "Prey_num", "Fasting_time", "Satiation")
