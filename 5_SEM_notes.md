@@ -140,3 +140,15 @@ Your explanation: if the laser sheet misses the centre plane of the suction, tha
 ## Chosen pressure correction
 
 Pressure is corrected with the decay implied by the velocity exponent (k = 0.61), so it matches the flow correction. This is script 4's `pressureVersion = "correctedK"`, from script 3's `Max_sub_pressure_corrK`. The within-video pressure decay check had too few videos (15) to estimate the decay from the pressure itself.
+
+## Time basis and the gape division
+
+The ratio V_buccal_vel / A is only physical near peak flow: while the gape is small it blows up. The current comparison (`variants`) crosses:
+- **Time basis:** tmaxVel and peak.
+- **Structure:**
+  - `base`: flow from the ratio.
+  - `flowAdditive`: flow from V_buccal_vel and A as separate additive terms.
+  - `flowKinematic`: pressure from the kinematic flow.
+- **Same pressure in every model:** corrected with k = 0.61, with nodes kept anywhere in the search area.
+
+Within a time basis, `flowAdditive` only changes predictors, so AIC compares it with `base` directly. Across time bases, compare the cross-validated pressure R².
