@@ -106,6 +106,14 @@ library(lmerTest)
   # Effort indicators are put on the same scale (mean 0, SD 1) before the measurement model. T is in s, the others aren't
   standardizeIndicators <- TRUE
 
+  # Split Effort into a fish-level part and a strike-level part
+    # Behavior_fish: each fish's mean Effort score over its strikes = how hard that fish consistently strikes (its striking style).
+      # It also carries anything else consistent about the fish that the model doesn't include (e.g. genetics, unmeasured morphology)
+    # Effort_strike: each strike's Effort score minus its fish's mean = strike-to-strike effort
+    # Both feed every equation Effort feeds. Prey_num, Satiation and Fasting_time predict Effort_strike; Behavior_fish is exogenous
+    # FALSE = one Effort_score, as before
+  splitEffort <- TRUE   ### CHANGE
+
   # Reference values for the linearization (docs: "90% of max to avoid edge fitting problems")
     # "fracMax": refFrac x the value with the largest magnitude (keeps the sign, so pressure uses 90% of the most negative)
     # "median": the median
@@ -252,7 +260,9 @@ library(lmerTest)
   effortIndicators <- c("Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean", "T")
 
   # Pairs never tested in the d-separation (the factor scores are made from the indicators, so they're dependent by construction)
-  dsepSkipPairs <- lapply(effortIndicators, function(v) c("Effort_score", v))
+  dsepSkipPairs <- c(lapply(effortIndicators, function(v) c("Effort_score", v)),
+                     lapply(effortIndicators, function(v) c("Effort_strike", v)),
+                     lapply(effortIndicators, function(v) c("Behavior_fish", v)))
 
 
 ##### Four-bar functions and sign settings from script 2
@@ -294,6 +304,12 @@ library(lmerTest)
     eqs <- eqs[!is.na(eqs)]
     for(nm in names(ktCols)) {
       eqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], eqs, fixed = TRUE)
+    }
+    # Effort split (splitEffort): the covariate equation becomes Effort_strike's, and Effort elsewhere becomes both parts
+    if(splitEffort && "Effort_score" %in% names(eqs)) {
+      names(eqs)[names(eqs) == "Effort_score"] <- "Effort_strike"
+      notCov <- names(eqs) != "Effort_strike"
+      eqs[notCov] <- gsub("Effort_score", "(Effort_strike + Behavior_fish)", eqs[notCov], fixed = TRUE)
     }
     eqs
   }
@@ -456,7 +472,31 @@ library(lmerTest)
     loadings <- standardizedSolution(fit)
     loadings <- loadings[loadings$op == "=~", c("rhs", "est.std", "se", "pvalue")]
     loadings$est.std <- flipNow * loadings$est.std
-    list(score = flipNow * scores, loadings = loadings, fit = fit)
+
+    # Scores for other strikes (e.g. fish left out in the cross-validation), with this fit and this standardization
+    centerNow <- sapply(d[, effortIndicators], mean, na.rm = TRUE)
+    scaleNow  <- sapply(d[, effortIndicators], sd, na.rm = TRUE)
+    scoreNew <- function(newd) {
+      indNew <- newd[, effortIndicators]
+      if(standardizeIndicators) {
+        for(v in effortIndicators) indNew[[v]] <- (indNew[[v]] - centerNow[[v]]) / scaleNow[[v]]
+      }
+      out <- rep(NA_real_, nrow(newd))
+      keepNew <- which(rowSums(!is.na(indNew)) > 0)
+      if(length(keepNew) > 0) out[keepNew] <- flipNow * lavPredict(fit, newdata = indNew[keepNew, , drop = FALSE], method = "Bartlett")[, "Effort"]
+      out
+    }
+    list(score = flipNow * scores, loadings = loadings, fit = fit, scoreNew = scoreNew)
+  }
+
+  # Behavior_fish (fish mean of the Effort scores) and Effort_strike (deviation from it), when splitEffort
+  addEffortParts <- function(d, scores) {
+    d$Effort_score <- scores
+    if(splitEffort) {
+      d$Behavior_fish <- ave(scores, d$Fish_ID, FUN = function(x) if(all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE))
+      d$Effort_strike <- scores - d$Behavior_fish
+    }
+    d
   }
 
 
@@ -464,7 +504,7 @@ library(lmerTest)
     # Returns the data with Effort_score added, the Effort model and the fitted equations
   fitAll <- function(d) {
     effortNow <- fitEffort(d)
-    d$Effort_score <- effortNow$score
+    d <- addEffortParts(d, effortNow$score)
     fits <- list()
     for(y in names(pathEqs)) {
       fits[[y]] <- tryCatch(suppressMessages(fitEq(y, pathEqs[[y]], d)), error = function(e) stop("Equation ", y, " failed: ", conditionMessage(e)))
@@ -720,12 +760,12 @@ library(lmerTest)
     d <- allDatasets[[variants$dataKey[vNow]]]
 
     # This model's equations and path structure (used by the functions above)
-    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score")),
+    list2env(buildStructure(variantEquations(variants$ktVersion[vNow], variants$structure[vNow]), c(names(d), "Effort_score", "Effort_strike", "Behavior_fish")),
              envir = globalenv())
     print(paste0(length(pathEqs), " path equations, ", length(activeIdentities), " identities, ", length(exogenous), " exogenous variables"))
 
     # Every variable in the equations must be numeric (Prey_num is the one ordered factor)
-    varsUsedNow <- setdiff(unique(c(names(nodeParents), unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators)), "Effort_score")
+    varsUsedNow <- setdiff(unique(c(names(nodeParents), unlist(lapply(checkEqs, varsOf)), names(checkEqs), effortIndicators)), c("Effort_score", "Effort_strike", "Behavior_fish"))
     notNumeric <- varsUsedNow[!sapply(varsUsedNow, function(v) is.numeric(d[[v]]) || (v == "Prey_num" && is.ordered(d[[v]])))]
     if(length(notNumeric) > 0) {
       stop("Variables that aren't numeric (check the data sheet / script 4): ",
@@ -799,7 +839,9 @@ library(lmerTest)
         nCvFail <- nCvFail + 1
         next
       }
-      predK <- tryCatch(suppressWarnings(wholePredict(fitK$fits, d[testRows, , drop = FALSE])), error = function(e) NULL)
+      # Effort scores of the left-out fish from the training fit (Behavior_fish is a measured trait of each fish)
+      dTest <- addEffortParts(d[testRows, , drop = FALSE], fitK$effort$scoreNew(d[testRows, , drop = FALSE]))
+      predK <- tryCatch(suppressWarnings(wholePredict(fitK$fits, dTest)), error = function(e) NULL)
       if(is.null(predK)) {
         nCvFail <- nCvFail + 1
         next
