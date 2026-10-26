@@ -259,9 +259,11 @@ rm(list=ls())
     # shapeCor: correlation over the strike frames (does the predicted flow rise and fall with the measured flow?)
     # shapeLag / shapeLagCor: the shift (frames, + = measured later) between -maxShapeLag and +maxShapeLag with the highest correlation
     # shapeRatio: median predicted / median measured (size; 1 = right on average)
+    # vol*: the same four, for volume rates instead of speeds: predicted V_buccal'(t) (= predicted flow x A(t)) against
+      # measured A(t) x U_flow_ff(t). No division by the gape area, so the small-gape frames early in the strike can't dominate
   maxShapeLag   <- 30   # frames (60 ms at 500 fps)
   widthSuffixes <- c(main = "", noRetract = "_noRetract", noWidth = "_noWidth")
-  shapeMetrics  <- c("shapeCor", "shapeLag", "shapeLagCor", "shapeRatio")
+  shapeMetrics  <- c("shapeCor", "shapeLag", "shapeLagCor", "shapeRatio", "volCor", "volLag", "volLagCor", "volRatio")
   for(colNow in as.vector(outer(outer(shapeMetrics, names(widthSuffixes), paste, sep = "_"), versions, paste, sep = "_"))) {
     flowData[[colNow]] <- NA_real_
   }
@@ -525,18 +527,37 @@ rm(list=ls())
             colEnd <- paste0("_", wNm, "_", verNow)
             flowData[[paste0("shapeCor", colEnd)]][i]   <- cor(predNow[okNow], measFF[okNow])
             flowData[[paste0("shapeRatio", colEnd)]][i] <- median(predNow[okNow]) / median(measFF[okNow])
-            # Shifted correlations: measured frame k + lag against predicted frame k
-            lagCors <- sapply(-maxShapeLag:maxShapeLag, function(lagNow) {
-              kMeas <- strikeK + lagNow
+
+            # Volume rates (mm^3/s): predicted V_buccal' = predicted flow x A, measured = measured fish-frame flow x A
+            aStrike <- A_t[strikeK]
+            predQ <- predNow * aStrike
+            measQ <- measFF * aStrike
+            okQ <- is.finite(predQ) & is.finite(measQ)
+            if(sum(okQ) >= 10) {
+              flowData[[paste0("volCor", colEnd)]][i]   <- cor(predQ[okQ], measQ[okQ])
+              flowData[[paste0("volRatio", colEnd)]][i] <- median(predQ[okQ]) / median(measQ[okQ])
+            }
+
+            # Shifted correlations: measured frame k + lag against predicted frame k (speeds, then volume rates)
+            lagNows <- -maxShapeLag:maxShapeLag
+            lagCors <- matrix(NA_real_, length(lagNows), 2, dimnames = list(NULL, c("shape", "vol")))
+            for(j in seq_along(lagNows)) {
+              kMeas <- strikeK + lagNows[j]
               inNow <- kMeas >= 1 & kMeas <= nNow
               mNow  <- rep(NA_real_, length(strikeK))
               mNow[inNow] <- smU$y[kMeas[inNow]] + U_ram_t[kMeas[inNow]]
+              qNow  <- rep(NA_real_, length(strikeK))
+              qNow[inNow] <- mNow[inNow] * A_t[kMeas[inNow]]
               okLag <- is.finite(predNow) & is.finite(mNow)
-              if(sum(okLag) < 10) NA_real_ else cor(predNow[okLag], mNow[okLag])
-            })
-            if(any(is.finite(lagCors))) {
-              flowData[[paste0("shapeLag", colEnd)]][i]    <- (-maxShapeLag:maxShapeLag)[which.max(lagCors)]
-              flowData[[paste0("shapeLagCor", colEnd)]][i] <- max(lagCors, na.rm = TRUE)
+              if(sum(okLag) >= 10) lagCors[j, "shape"] <- cor(predNow[okLag], mNow[okLag])
+              okLagQ <- is.finite(predQ) & is.finite(qNow)
+              if(sum(okLagQ) >= 10) lagCors[j, "vol"] <- cor(predQ[okLagQ], qNow[okLagQ])
+            }
+            for(kind in c("shape", "vol")) {
+              if(any(is.finite(lagCors[, kind]))) {
+                flowData[[paste0(kind, "Lag", colEnd)]][i]    <- lagNows[which.max(lagCors[, kind])]
+                flowData[[paste0(kind, "LagCor", colEnd)]][i] <- max(lagCors[, kind], na.rm = TRUE)
+              }
             }
           }
           if(any(!is.na(uS))) {
@@ -656,19 +677,23 @@ rm(list=ls())
     # Medians across videos, for each velocity version and width model. cor > 0.5 = the share of videos with a clear match
     # A best lag far from 0 means the peaks are offset in time (PIV vs. kinematics alignment, or the volume model's timing)
   for(v in versions) {
-    print(paste0("--- within-video predicted vs. measured flow (fish frame): ", v))
-    print(sapply(names(widthSuffixes), function(wNm) {
-      colEnd <- paste0("_", wNm, "_", v)
-      c(n_videos   = sum(!is.na(flowData[[paste0("shapeCor", colEnd)]])),
-        median_cor = median(flowData[[paste0("shapeCor", colEnd)]], na.rm = TRUE),
-        share_cor_over_0.5 = mean(flowData[[paste0("shapeCor", colEnd)]] > 0.5, na.rm = TRUE),
-        median_best_lag = median(flowData[[paste0("shapeLag", colEnd)]], na.rm = TRUE),
-        lag_q25 = unname(quantile(flowData[[paste0("shapeLag", colEnd)]], 0.25, na.rm = TRUE)),
-        lag_q75 = unname(quantile(flowData[[paste0("shapeLag", colEnd)]], 0.75, na.rm = TRUE)),
-        share_lag_at_limit = mean(abs(flowData[[paste0("shapeLag", colEnd)]]) == maxShapeLag, na.rm = TRUE),
-        median_best_lag_cor = median(flowData[[paste0("shapeLagCor", colEnd)]], na.rm = TRUE),
-        median_ratio = median(flowData[[paste0("shapeRatio", colEnd)]], na.rm = TRUE))
-    }), digits = 3)
+    for(kind in c("shape", "vol")) {
+      print(paste0("--- within-video predicted vs. measured ", if(kind == "shape") "flow speed" else "volume rate (no division by gape area)",
+                   " (fish frame): ", v))
+      print(sapply(names(widthSuffixes), function(wNm) {
+        colEnd <- paste0("_", wNm, "_", v)
+        getNow <- function(m) flowData[[paste0(kind, m, colEnd)]]
+        c(n_videos   = sum(!is.na(getNow("Cor"))),
+          median_cor = median(getNow("Cor"), na.rm = TRUE),
+          share_cor_over_0.5 = mean(getNow("Cor") > 0.5, na.rm = TRUE),
+          median_best_lag = median(getNow("Lag"), na.rm = TRUE),
+          lag_q25 = unname(quantile(getNow("Lag"), 0.25, na.rm = TRUE)),
+          lag_q75 = unname(quantile(getNow("Lag"), 0.75, na.rm = TRUE)),
+          share_lag_at_limit = mean(abs(getNow("Lag")) == maxShapeLag, na.rm = TRUE),
+          median_best_lag_cor = median(getNow("LagCor"), na.rm = TRUE),
+          median_ratio = median(getNow("Ratio"), na.rm = TRUE))
+      }), digits = 3)
+    }
   }
 
   # Total ingested volume: decomposition vs. direct integral, for each version (close to 1 when the trace covers the whole strike;
