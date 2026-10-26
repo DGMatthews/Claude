@@ -61,8 +61,11 @@ library(lmerTest)
                      # corrected mouth-front flow for the strike means and ingested volume (see script 4)
     # ktVersion:   "dynamic" (Oral_KT_tmax, Opercular_KT_tmax) or "static" (Oral_4bar_KT, Opercular_4bar_KT at 30 and 10 degrees)
     # structure:   name of an equation set in structures (below). "base" = the equations as written in this script
-  variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
-                          ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   ### CHANGE
+  # Chosen model: tmaxVel (best cross-validated R^2 of pressure) and static KT (lower AIC than dynamic at both time bases)
+  variants <- expand.grid(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
+                          ktVersion = "static", structure = "base", stringsAsFactors = FALSE)   ### CHANGE
+  # variants <- expand.grid(timeBasis = c("tmax", "tmaxVel"), widthModel = "noWidth", flowVersion = "static+mouthFrontCorr",
+  #                         ktVersion = c("dynamic", "static"), structure = "base", stringsAsFactors = FALSE)   # the earlier comparison
 
   # Optional comparisons (each adds models to variants). All but compareStaticRaw are variations of one model (compareBase)
     # and change only predictors, so they are in that model's aic_group and compared by AIC
@@ -84,8 +87,8 @@ library(lmerTest)
   compareFlowRam     <- FALSE   ### CHANGE
   compareFlowDirect  <- FALSE   ### CHANGE
   compareMullerK     <- FALSE   ### CHANGE
-  comparePeak        <- TRUE    ### CHANGE
-  compareBase <- data.frame(timeBasis = "tmax", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
+  comparePeak        <- FALSE   ### CHANGE
+  compareBase <- data.frame(timeBasis = "tmaxVel", widthModel = "noWidth", flowVersion = "static+mouthFrontCorr", ktVersion = "static", structure = "base")   ### CHANGE
   if(compareStaticRaw)   variants <- rbind(variants, transform(variants, flowVersion = "staticRaw"))
   if(compareDistance)    variants <- rbind(variants, transform(compareBase, structure = "noDist"))
   if(compareWidthModels) variants <- rbind(variants, transform(compareBase[c(1, 1), ], widthModel = c("main", "noRetract")))
@@ -129,7 +132,7 @@ library(lmerTest)
 
   # Which models get the bootstrap (slow). NULL = all of them, or a vector of labels
   # bootVariants <- NULL   # all models (slow)
-  bootVariants <- c("tmax_noWidth_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
+  bootVariants <- c("tmaxVel_noWidth_static+mouthFrontCorr_static_base")   ### CHANGE  while the structure is still changing
 
   # Cross-validation folds (fish are split into this many groups; each group is predicted from models fitted without it)
   cvFolds <- 10   ### CHANGE
@@ -394,7 +397,8 @@ library(lmerTest)
       eqs <- gsub(paste0("{", nm, "}"), ktCols[[nm]], eqs, fixed = TRUE)
     }
     # Effort split (splitEffort): the covariate equation becomes Effort_strike's, and Effort elsewhere becomes both parts
-    if(splitEffort && "Effort_score" %in% names(eqs)) {
+    # (without effortCovariates there is no covariate equation, and both parts are exogenous)
+    if(splitEffort) {
       names(eqs)[names(eqs) == "Effort_score"] <- "Effort_strike"
       notCov <- names(eqs) != "Effort_strike"
       eqs[notCov] <- gsub("Effort_score", "(Effort_strike + Behavior_fish)", eqs[notCov], fixed = TRUE)
