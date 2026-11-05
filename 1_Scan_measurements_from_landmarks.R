@@ -17,6 +17,8 @@
 
   # Four-bar links and resting angles are taken in the side view, so each linkage closes exactly at rest
     # The true 3D lengths are saved as well (*_3D), for genetic mapping
+  # Every side-view length ends in _side (*_side). These are only for comparing with the 2D video (jaw triangle, four-bar models,
+    # hyoid rest distance); map the *_3D lengths instead. Lengths without a suffix (e.g. Neurocranium_length) are 3D
   # Four-bar angles are counterclockwise-positive with the fish facing left (anterior to the left, dorsal up)
     # With this convention, jaw opening and opercular rotation both increase theta2 (oralOpenSign = opercularOpenSign = +1 in the kinematics script)
 
@@ -64,8 +66,8 @@ rm(list=ls())
 
   mouthOpenCols <- c("Oral_theta2_rest", "Opercular_theta2_rest", "Opercular_theta4_rest",
                      "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg",
-                     "Mandible_input_length", "Mandible_input_length_3D")
-  hyoidRestCols <- c("D_head", "D_head_backup", "D_head_backup_3D", "Hyoid_rest_AP", "Hyoid_rest_depth",
+                     "Mandible_input_length_side", "Mandible_input_length_3D")
+  hyoidRestCols <- c("D_head", "D_head_backup_side", "D_head_backup_3D", "Hyoid_rest_AP", "Hyoid_rest_depth",
                      "Ceratohyal_AP_rest", "Ceratohyal_DV_rest", "Ceratohyal_half_width_check", "W_head")
 
   # Landmark numbers (position in the file), from List_of_landmarks.docx
@@ -226,16 +228,16 @@ rm(list=ls())
     # Widths
     "W_jaw", "W_jaw_joint", "W_nasal", "W_head",
     # Mandible triangle (side-view lengths, by the List_of_landmarks.docx formulas)
-    "Mandible_length", "Nasal_QMJ_dist", "Nasal_mandtip_dist",
+    "Mandible_length_side", "Nasal_QMJ_dist_side", "Nasal_mandtip_dist_side",
     # Hyoid and buccal volume
-    "D_head", "D_head_backup", "Nasal_eye_AP_length", "Hyoid_rest_AP", "Hyoid_rest_depth",
+    "D_head", "D_head_backup_side", "Nasal_eye_AP_length", "Hyoid_rest_AP", "Hyoid_rest_depth",
     "Ceratohyal_length", "Ceratohyal_AP_rest", "Ceratohyal_DV_rest",
     # Other bones
     "Neurocranium_length", "Supraoccipital_crest_depth", "Urohyal_length", "Length_premaxilla_asc_arm",
     # Oral four-bar (side view)
-    "Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length", "Oral_theta2_rest",
+    "Mandible_input_length_side", "Maxilla_length_side", "Maxilla_palatine_length_side", "Oral_fixed_length_side", "Oral_theta2_rest",
     # Opercular four-bar (side view)
-    "Operculum_length", "IOP_length", "IOP_ligament_length", "RA_process_length", "Opercular_fixed_length",
+    "Operculum_length_side", "IOP_length_side", "IOP_ligament_length_side", "RA_process_length_side", "Opercular_fixed_length_side",
     "Opercular_theta2_rest", "Opercular_theta4_rest",
     # True 3D sizes, for genetic mapping
     "Mandible_length_3D", "Nasal_QMJ_dist_3D", "D_head_backup_3D",
@@ -351,17 +353,17 @@ rm(list=ls())
 
 
     ##### Mandible triangle
-      # Mandible_length = sqrt(hypotenuse^2 - (W_jaw_joint/2)^2): mandible tip (midline) to left joint, without the joint's distance from the midline
+      # Mandible_length_side = sqrt(hypotenuse^2 - (W_jaw_joint/2)^2): mandible tip (midline) to left joint, without the joint's distance from the midline
       scanMeas$Mandible_length_3D[i] <- dist3D(lmk("mandTip"), jointL)
-      scanMeas$Mandible_length[i]    <- sqrt(scanMeas$Mandible_length_3D[i]^2 - (scanMeas$W_jaw_joint[i] / 2)^2)
+      scanMeas$Mandible_length_side[i]    <- sqrt(scanMeas$Mandible_length_3D[i]^2 - (scanMeas$W_jaw_joint[i] / 2)^2)
 
-      # Nasal_QMJ_dist = sqrt(hypotenuse^2 - ((W_jaw_joint - W_nasal)/2)^2): left nasal tip to left joint, without the side-to-side gap between them
+      # Nasal_QMJ_dist_side = sqrt(hypotenuse^2 - ((W_jaw_joint - W_nasal)/2)^2): left nasal tip to left joint, without the side-to-side gap between them
       scanMeas$Nasal_QMJ_dist_3D[i] <- dist3D(lmk("nasalL"), jointL)
-      scanMeas$Nasal_QMJ_dist[i]    <- sqrt(scanMeas$Nasal_QMJ_dist_3D[i]^2 - ((scanMeas$W_jaw_joint[i] - scanMeas$W_nasal[i]) / 2)^2)
+      scanMeas$Nasal_QMJ_dist_side[i]    <- sqrt(scanMeas$Nasal_QMJ_dist_3D[i]^2 - ((scanMeas$W_jaw_joint[i] - scanMeas$W_nasal[i]) / 2)^2)
 
-      # Nasal_mandtip_dist: nasal tip to mandible tip, side view. With the closed distance from the videos, the kinematics script uses it
+      # Nasal_mandtip_dist_side: nasal tip to mandible tip, side view. With the closed distance from the videos, the kinematics script uses it
         # to measure how far open the mouth is in the scan and correct the four-bar resting angles
-      scanMeas$Nasal_mandtip_dist[i] <- distSide(lmk("nasalL"), lmk("mandTip"))
+      scanMeas$Nasal_mandtip_dist_side[i] <- distSide(lmk("nasalL"), lmk("mandTip"))
 
 
     ##### Hyoid and buccal volume
@@ -371,8 +373,8 @@ rm(list=ls())
       toPoint  <- lmk("parasph") - lmk("ceratoCaudL")
       scanMeas$D_head[i] <- vecLength(toPoint - sum(toPoint * lineDir) * lineDir)
 
-      # D_head_backup: nasal tip to the tracked Hyoid point (rostral ceratohyal tip) at rest, side view like the video
-      scanMeas$D_head_backup[i]    <- distSide(lmk("nasalL"), lmk("ceratoRost"))
+      # D_head_backup_side: nasal tip to the tracked Hyoid point (rostral ceratohyal tip) at rest, side view like the video
+      scanMeas$D_head_backup_side[i]    <- distSide(lmk("nasalL"), lmk("ceratoRost"))
       scanMeas$D_head_backup_3D[i] <- dist3D(lmk("nasalL"), lmk("ceratoRost"))
 
       # Ceratohyal_length doesn't depend on the frame
@@ -409,17 +411,17 @@ rm(list=ls())
 
 
     ##### Mouth-open check
-      # Mandible tip to premaxilla tip, as a fraction of Mandible_length. Near 0 when the mouth is closed
+      # Mandible tip to premaxilla tip, as a fraction of Mandible_length_side. Near 0 when the mouth is closed
         # Large values mean the mouth may be open in the scan (see mouthOpenScans)
-      scanMeas$Gape_rest_check[i] <- dist3D(lmk("mandTip"), lmk("pmxTip")) / scanMeas$Mandible_length[i]
+      scanMeas$Gape_rest_check[i] <- dist3D(lmk("mandTip"), lmk("pmxTip")) / scanMeas$Mandible_length_side[i]
 
 
     ##### Oral four-bar
       # Input = mandible (joint to ventral maxilla tip), coupler = maxilla, output = dorsal maxilla tip to palatine, fixed = joint to palatine
-      scanMeas$Mandible_input_length[i]   <- distSide(jointL, lmk("maxVent"))
-      scanMeas$Maxilla_length[i]          <- distSide(lmk("maxVent"), lmk("maxDors"))
-      scanMeas$Maxilla_palatine_length[i] <- distSide(lmk("maxDors"), lmk("palatine"))
-      scanMeas$Oral_fixed_length[i]       <- distSide(jointL, lmk("palatine"))
+      scanMeas$Mandible_input_length_side[i]   <- distSide(jointL, lmk("maxVent"))
+      scanMeas$Maxilla_length_side[i]          <- distSide(lmk("maxVent"), lmk("maxDors"))
+      scanMeas$Maxilla_palatine_length_side[i] <- distSide(lmk("maxDors"), lmk("palatine"))
+      scanMeas$Oral_fixed_length_side[i]       <- distSide(jointL, lmk("palatine"))
 
       scanMeas$Mandible_input_length_3D[i]   <- dist3D(jointL, lmk("maxVent"))
       scanMeas$Maxilla_length_3D[i]          <- dist3D(lmk("maxVent"), lmk("maxDors"))
@@ -433,19 +435,19 @@ rm(list=ls())
       # Check: measured theta4 (fixed link direction to output link, at the palatine) vs. the Freudenstein + solution
         # Should be ~0. A large value means this linkage sits in the other assembly, and the kinematics script's four-bar would be wrong for it
       oralTheta4Meas <- signedAngle(oralFixedDir, sideDir(lmk("palatine"), lmk("maxDors")))
-      oralTheta4Pred <- fourBarTheta4(scanMeas$Oral_theta2_rest[i], scanMeas$Mandible_input_length[i], scanMeas$Maxilla_length[i],
-                                      scanMeas$Maxilla_palatine_length[i], scanMeas$Oral_fixed_length[i])
+      oralTheta4Pred <- fourBarTheta4(scanMeas$Oral_theta2_rest[i], scanMeas$Mandible_input_length_side[i], scanMeas$Maxilla_length_side[i],
+                                      scanMeas$Maxilla_palatine_length_side[i], scanMeas$Oral_fixed_length_side[i])
       scanMeas$Oral_theta4_rest_diff_deg[i] <- wrapAngle(oralTheta4Pred - oralTheta4Meas) * 180 / pi
 
 
     ##### Opercular four-bar
       # Input = operculum (hyomandibular-opercular joint to IOP-SOP symphysis), coupler = IOP + IOP ligament,
         # output = retroarticular process (jaw joint to RA tip), fixed = hyomandibular-opercular joint to jaw joint
-      scanMeas$Operculum_length[i]       <- distSide(lmk("hyoOpJoint"), lmk("iopSopSym"))
-      scanMeas$IOP_length[i]             <- distSide(lmk("iopTip"), lmk("iopSopSym"))
-      scanMeas$IOP_ligament_length[i]    <- distSide(lmk("raTip"), lmk("iopTip"))
-      scanMeas$RA_process_length[i]      <- distSide(jointL, lmk("raTip"))
-      scanMeas$Opercular_fixed_length[i] <- distSide(jointL, lmk("hyoOpJoint"))
+      scanMeas$Operculum_length_side[i]       <- distSide(lmk("hyoOpJoint"), lmk("iopSopSym"))
+      scanMeas$IOP_length_side[i]             <- distSide(lmk("iopTip"), lmk("iopSopSym"))
+      scanMeas$IOP_ligament_length_side[i]    <- distSide(lmk("raTip"), lmk("iopTip"))
+      scanMeas$RA_process_length_side[i]      <- distSide(jointL, lmk("raTip"))
+      scanMeas$Opercular_fixed_length_side[i] <- distSide(jointL, lmk("hyoOpJoint"))
 
       scanMeas$Operculum_length_3D[i]       <- dist3D(lmk("hyoOpJoint"), lmk("iopSopSym"))
       scanMeas$IOP_length_3D[i]             <- dist3D(lmk("iopTip"), lmk("iopSopSym"))
@@ -461,9 +463,9 @@ rm(list=ls())
 
       # Check, as for the oral four-bar. Here it isn't exactly 0 even when correct, because the coupler is IOP + ligament
         # (bent at the IOP tip) rather than the straight symphysis-to-RA distance. The kinematics script reports the same difference
-      opTheta4Pred <- fourBarTheta4(scanMeas$Opercular_theta2_rest[i], scanMeas$Operculum_length[i],
-                                    scanMeas$IOP_length[i] + scanMeas$IOP_ligament_length[i],
-                                    scanMeas$RA_process_length[i], scanMeas$Opercular_fixed_length[i])
+      opTheta4Pred <- fourBarTheta4(scanMeas$Opercular_theta2_rest[i], scanMeas$Operculum_length_side[i],
+                                    scanMeas$IOP_length_side[i] + scanMeas$IOP_ligament_length_side[i],
+                                    scanMeas$RA_process_length_side[i], scanMeas$Opercular_fixed_length_side[i])
       scanMeas$Opercular_theta4_rest_diff_deg[i] <- wrapAngle(opTheta4Pred - scanMeas$Opercular_theta4_rest[i]) * 180 / pi
   }
 
@@ -619,7 +621,7 @@ rm(list=ls())
 
   # Mouths that may be open: gape more than 4 MADs above the median (only large values matter)
     # Fish already in mouthOpenScans are left out of the list
-  print("Mandible tip to premaxilla tip / Mandible_length (mouth-open check):")
+  print("Mandible tip to premaxilla tip / Mandible_length_side (mouth-open check):")
   print(summary(scanOut$Gape_rest_check))
   gapeCut <- median(scanOut$Gape_rest_check, na.rm = TRUE) + 4 * mad(scanOut$Gape_rest_check, na.rm = TRUE)
   maybeOpen <- which(scanOut$Gape_rest_check > gapeCut & !(scanOut$specimen %in% mouthOpenScans))

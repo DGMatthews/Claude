@@ -1079,33 +1079,33 @@ print(length(unique(finalData$Unique.ID)))
       # Right side = column name in the scan file
       scanColumns <- c(
         # Mandible
-        Mandible_length            = "Mandible_length",          ### CHANGE  jaw joint to LJ tip, anteroposterior leg
-        Nasal_QMJ_dist             = "Nasal_QMJ_dist",           ### CHANGE  nasal tip to quadrate-mandible joint, lateral view (not a four-bar link)
+        Mandible_length_side            = "Mandible_length_side",          ### CHANGE  jaw joint to LJ tip, anteroposterior leg
+        Nasal_QMJ_dist_side             = "Nasal_QMJ_dist_side",           ### CHANGE  nasal tip to quadrate-mandible joint, lateral view (not a four-bar link)
         # Gape, buccal volume, neurocranium, hyoid
         W_jaw                      = "W_jaw",                    ### CHANGE
         W_head                     = "W_head",                   ### CHANGE
         D_head                     = "D_head",                   ### CHANGE
         Neurocranium_length        = "Neurocranium_length",      ### CHANGE
         Ceratohyal_length          = "Ceratohyal_length",        ### CHANGE
-        D_head_backup              = "D_head_backup",            ### CHANGE  nasal tip to rostral urohyal tip (= tracked hyoid point) at rest, lateral view
+        D_head_backup_side              = "D_head_backup_side",            ### CHANGE  nasal tip to rostral urohyal tip (= tracked hyoid point) at rest, lateral view
         Nasal_eye_AP_length        = "Nasal_eye_AP_length",      ### CHANGE  AP distance along the Eye-Nasal line, nasal tip to eye centre
         Hyoid_rest_AP              = "Hyoid_rest_AP",            ### CHANGE  AP distance, eye centre to rostral ceratohyal tip. Positive if the tip is posterior
         Hyoid_rest_depth           = "Hyoid_rest_depth",         ### CHANGE  depth of the rostral ceratohyal tip below the Eye-Nasal line at rest (zero for hyoid depression)
         Ceratohyal_AP_rest         = "Ceratohyal_AP_rest",       ### CHANGE  AP distance between rostral and caudal ceratohyal tips at rest
         Ceratohyal_DV_rest         = "Ceratohyal_DV_rest",       ### CHANGE  DV distance between rostral and caudal ceratohyal tips at rest. Positive if the rostral tip is ventral
         # Oral four-bar
-        Mandible_input_length      = "Mandible_input_length",    ### CHANGE  input link
-        Maxilla_length             = "Maxilla_length",           ### CHANGE  coupler link
-        Maxilla_palatine_length    = "Maxilla_palatine_length",  ### CHANGE  output link: dorsal maxilla tip to anterior palatine tip
-        Oral_fixed_length          = "Oral_fixed_length",        ### CHANGE  fixed link: quadrate-mandible joint to anterior palatine tip
+        Mandible_input_length_side      = "Mandible_input_length_side",    ### CHANGE  input link
+        Maxilla_length_side             = "Maxilla_length_side",           ### CHANGE  coupler link
+        Maxilla_palatine_length_side    = "Maxilla_palatine_length_side",  ### CHANGE  output link: dorsal maxilla tip to anterior palatine tip
+        Oral_fixed_length_side          = "Oral_fixed_length_side",        ### CHANGE  fixed link: quadrate-mandible joint to anterior palatine tip
         Oral_theta2_rest_scan      = "Oral_theta2_rest",         ### CHANGE  as scanned (mouth possibly open). Corrected to closed after the loop
-        Nasal_mandtip_dist         = "Nasal_mandtip_dist",       ### CHANGE  nasal tip to mandible tip at rest, side view (mouth-opening correction)
+        Nasal_mandtip_dist_side         = "Nasal_mandtip_dist_side",       ### CHANGE  nasal tip to mandible tip at rest, side view (mouth-opening correction)
         # Opercular four-bar
-        Operculum_length           = "Operculum_length",         ### CHANGE  input link
-        IOP_length                 = "IOP_length",               ### CHANGE  coupler part 1
-        IOP_ligament_length        = "IOP_ligament_length",      ### CHANGE  coupler part 2
-        RA_process_length          = "RA_process_length",        ### CHANGE  output link
-        Opercular_fixed_length     = "Opercular_fixed_length",   ### CHANGE  fixed link
+        Operculum_length_side           = "Operculum_length_side",         ### CHANGE  input link
+        IOP_length_side                 = "IOP_length_side",               ### CHANGE  coupler part 1
+        IOP_ligament_length_side        = "IOP_ligament_length_side",      ### CHANGE  coupler part 2
+        RA_process_length_side          = "RA_process_length_side",        ### CHANGE  output link
+        Opercular_fixed_length_side     = "Opercular_fixed_length_side",   ### CHANGE  fixed link
         Opercular_theta2_rest_scan = "Opercular_theta2_rest",    ### CHANGE  as scanned (mouth possibly open). Corrected to closed after the loop
         Opercular_theta4_rest_scan = "Opercular_theta4_rest"     ### CHANGE  delete this line if theta4_rest isn't measured in the scans
       )
@@ -1161,7 +1161,7 @@ print(length(unique(finalData$Unique.ID)))
       # How many videos are missing each measurement?
     print(colSums(is.na(finalData[, names(scanColumns)])))
       # Which individuals have no scan match at all?
-    print(unique(finalData$Unique.ID[is.na(finalData$Mandible_length)]))
+    print(unique(finalData$Unique.ID[is.na(finalData$Mandible_length_side)]))
   
   
   
@@ -1202,20 +1202,20 @@ print(length(unique(finalData$Unique.ID)))
         opercularStaticAngle <- pi/18   # 10 degrees
         
         
-        # IOP_link_length (opercular coupler link)
-        finalData$IOP_link_length <- finalData$IOP_length + finalData$IOP_ligament_length
+        # IOP_link_length_side (opercular coupler link)
+        finalData$IOP_link_length_side <- finalData$IOP_length_side + finalData$IOP_ligament_length_side
         
         
         # Resting angles, static KT and the four-bar values at tmax / tmaxVel are calculated after the loop (Four-bar systems),
           # after the scan's resting angles are corrected for a slightly open mouth
 
         # Link ratios
-        finalData$Oral_input_ratio        <- finalData$Mandible_input_length / finalData$Oral_fixed_length
-        finalData$Oral_coupler_ratio      <- finalData$Maxilla_length / finalData$Oral_fixed_length
-        finalData$Oral_output_ratio       <- finalData$Maxilla_palatine_length / finalData$Oral_fixed_length
-        finalData$Opercular_input_ratio   <- finalData$Operculum_length / finalData$Opercular_fixed_length
-        finalData$Opercular_coupler_ratio <- finalData$IOP_link_length / finalData$Opercular_fixed_length
-        finalData$Opercular_output_ratio  <- finalData$RA_process_length / finalData$Opercular_fixed_length
+        finalData$Oral_input_ratio        <- finalData$Mandible_input_length_side / finalData$Oral_fixed_length_side
+        finalData$Oral_coupler_ratio      <- finalData$Maxilla_length_side / finalData$Oral_fixed_length_side
+        finalData$Oral_output_ratio       <- finalData$Maxilla_palatine_length_side / finalData$Oral_fixed_length_side
+        finalData$Opercular_input_ratio   <- finalData$Operculum_length_side / finalData$Opercular_fixed_length_side
+        finalData$Opercular_coupler_ratio <- finalData$IOP_link_length_side / finalData$Opercular_fixed_length_side
+        finalData$Opercular_output_ratio  <- finalData$RA_process_length_side / finalData$Opercular_fixed_length_side
         
         
         
@@ -1826,14 +1826,14 @@ for(i in 1:nVids) {
         ############
 
         # Mandible rotation from the triangle Nasal - jaw joint - LJ
-          # D = Nasal tip to jaw joint distance (Nasal_QMJ_dist, from scans)
-          # r = jaw joint to LJ tip (Mandible_length, from scans)
+          # D = Nasal tip to jaw joint distance (Nasal_QMJ_dist_side, from scans)
+          # r = jaw joint to LJ tip (Mandible_length_side, from scans)
           # d = Nasal to LJ distance in each frame (from the video)
           # Law of cosines gives the angle at the jaw joint: phi = acos((D^2 + r^2 - d^2) / (2*D*r))
         # Variables
           # Mandible_tip_disp_t:   change in Nasal to LJ distance from rest (mm). Measured directly, no scan values needed
           # Mandible_ang_t:        change in phi from rest (radians, opening is positive)
-          # Mandible_depression_t: Mandible_length * sin(Mandible_ang_t) (mm). Identity with the SEM equation
+          # Mandible_depression_t: Mandible_length_side * sin(Mandible_ang_t) (mm). Identity with the SEM equation
 
           dfTemp <- data.frame(xLJ=xLJ, yLJ=yLJ, xNasal=xNasal, yNasal=yNasal)
           firstMandFrame <- which(complete.cases(dfTemp))[1]
@@ -1893,8 +1893,8 @@ for(i in 1:nVids) {
 
             ##### Mandible_ang_t and Mandible_depression_t (need scan values)
 
-              jawD <- finalData$Nasal_QMJ_dist[i]
-              jawR <- finalData$Mandible_length[i]
+              jawD <- finalData$Nasal_QMJ_dist_side[i]
+              jawR <- finalData$Mandible_length_side[i]
 
               if(!is.na(jawD) && !is.na(jawR)) {
 
@@ -1932,7 +1932,7 @@ for(i in 1:nVids) {
                     
                     
                   # Mandible_depression_Max (mm)
-                    # Depression = Mandible_length * sin(angle) keeps increasing with angle up to 90 degrees, so its max is at Mandible_Max
+                    # Depression = Mandible_length_side * sin(angle) keeps increasing with angle up to 90 degrees, so its max is at Mandible_Max
                     # Calculated from Mandible_Max so it's an exact identity, not a separate max search
                     # A jaw opening past 90 degrees is impossible, so it means bad tracking, scan values or calibration
                     if(finalData$Mandible_Max[i] > pi/2) {
@@ -1997,7 +1997,7 @@ for(i in 1:nVids) {
               }
 
               # Angle (only checked when scan values exist, since missing scans aren't a landmarking problem)
-              if(!is.na(finalData$Nasal_QMJ_dist[i]) && !is.na(finalData$Mandible_length[i])) {
+              if(!is.na(finalData$Nasal_QMJ_dist_side[i]) && !is.na(finalData$Mandible_length_side[i])) {
                 if(!is.na(finalData$tmax[i]) && is.na(finalData$Mandible_ang_tmax[i])) {
                   skippedVids <- addSkip(skippedVids, fileNames2[i], "Mandible", "Angle at tmax not calculated: tmax outside tracked frames or < 10 frames")
                 }
@@ -2449,7 +2449,7 @@ for(i in 1:nVids) {
           # Videos without the eye: calculated after the loop from the Nasal-Hyoid distance with the triangle and the pooled retraction ratio
           # Hyoid_depth_source records which ("eye" or "triangle")
         # Hyoid_retraction_t (eye videos): posterior movement along the Eye-Nasal line, minus Hyoid_rest_AP
-        # Backup (Hyoid_excursion_*_backup): change in Nasal-Hyoid distance from D_head_backup
+        # Backup (Hyoid_excursion_*_backup): change in Nasal-Hyoid distance from D_head_backup_side
           # Not a depression: mixes retraction with dorsoventral motion. Kept as a separate phenotype
         # All per-version calculations are in hyoidOutputs() (functions section)
 
@@ -2499,7 +2499,7 @@ for(i in 1:nVids) {
           hyoidVersions <- list(
             list(section = "Hyoid",        missing = "Hyoid, Eye and Nasal never all present", raw_t = hyoidDepthSkull_t, rest = finalData$Hyoid_rest_depth[i],
                  cols = hyoidColsMain,   depressionSeries = "Hyoid_depression_t",        velSeries = "Hyoid_vel_t"),
-            list(section = "Hyoid backup", missing = "Hyoid and Nasal never both present",   raw_t = hyoidDistNasal_t,  rest = finalData$D_head_backup[i],
+            list(section = "Hyoid backup", missing = "Hyoid and Nasal never both present",   raw_t = hyoidDistNasal_t,  rest = finalData$D_head_backup_side[i],
                  cols = hyoidColsBackup, depressionSeries = "Hyoid_excursion_t_backup",  velSeries = "Hyoid_excursion_vel_t_backup")
           )
 
@@ -3252,8 +3252,8 @@ for(i in 1:nVids) {
 
     # Scan consistency, one row per fish
   scanRowsNow <- !duplicated(finalData$Unique.ID)
-      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup. ~0 by construction now that both come from the same scan frame (a check that the columns line up)
-  print(summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$Hyoid_rest_depth^2)[scanRowsNow] - finalData$D_head_backup[scanRowsNow]))
+      # Resting nasal-to-hyoid distance from the triangle inputs vs. D_head_backup_side. ~0 by construction now that both come from the same scan frame (a check that the columns line up)
+  print(summary(sqrt((finalData$Nasal_eye_AP_length + finalData$Hyoid_rest_AP)^2 + finalData$Hyoid_rest_depth^2)[scanRowsNow] - finalData$D_head_backup_side[scanRowsNow]))
       # Resting ceratohyal half-width from the bar vs. W_head/2. Should be close to 0
   print(summary(sqrt(finalData$Ceratohyal_length^2 - finalData$Ceratohyal_AP_rest^2 - finalData$Ceratohyal_DV_rest^2)[scanRowsNow] - finalData$W_head[scanRowsNow]/2))
 
@@ -3325,9 +3325,9 @@ for(i in 1:nVids) {
   # Every video is redone each run (also in "unprocessed" mode)
 
   ##### Mouth opening in the scan
-    # Same triangle as Mandible_ang: Nasal - jaw joint - LJ, with Nasal_QMJ_dist and Mandible_length from the scans
+    # Same triangle as Mandible_ang: Nasal - jaw joint - LJ, with Nasal_QMJ_dist_side and Mandible_length_side from the scans
     # Closed Nasal-LJ distance for each fish (Nasal_LJ_closed) = closedQuantile of Nasal_LJ_closed_video across its videos
-    # Scan Nasal-LJ distance = Nasal_mandtip_dist (side view)
+    # Scan Nasal-LJ distance = Nasal_mandtip_dist_side (side view)
     # Mouth_open_angle = scan triangle angle - closed triangle angle (radians). Positive = mouth open in the scan
     # The scan's resting angles are corrected to a closed mouth:
       # Oral: the mandible is the input link, so Oral_theta2_rest = Oral_theta2_rest_scan - oralOpenSign * Mouth_open_angle
@@ -3346,8 +3346,8 @@ for(i in 1:nVids) {
       ifelse(abs(cosNow) <= 1, acos(pmin(pmax(cosNow, -1), 1)), NA_real_)
     }
 
-    finalData$Mouth_open_angle <- jawTriAngle(finalData$Nasal_mandtip_dist, finalData$Nasal_QMJ_dist, finalData$Mandible_length) -
-                                  jawTriAngle(finalData$Nasal_LJ_closed,    finalData$Nasal_QMJ_dist, finalData$Mandible_length)
+    finalData$Mouth_open_angle <- jawTriAngle(finalData$Nasal_mandtip_dist_side, finalData$Nasal_QMJ_dist_side, finalData$Mandible_length_side) -
+                                  jawTriAngle(finalData$Nasal_LJ_closed,    finalData$Nasal_QMJ_dist_side, finalData$Mandible_length_side)
     finalData$Mouth_open_corrected <- !is.na(finalData$Mouth_open_angle)
 
     openNow <- ifelse(finalData$Mouth_open_corrected, finalData$Mouth_open_angle, 0)
@@ -3357,10 +3357,10 @@ for(i in 1:nVids) {
 
     # Opercular four-bar: output link is the mandible
       # Resting theta4 at the scanned theta2, rotated back by the mouth opening, then theta2 solved for it (Newton's method, using the instantaneous KT)
-    operIn  <- finalData$Operculum_length
-    operCp  <- finalData$IOP_link_length
-    operOut <- finalData$RA_process_length
-    operFx  <- finalData$Opercular_fixed_length
+    operIn  <- finalData$Operculum_length_side
+    operCp  <- finalData$IOP_link_length_side
+    operOut <- finalData$RA_process_length_side
+    operFx  <- finalData$Opercular_fixed_length_side
 
     theta4Closed <- fourBarTheta4(finalData$Opercular_theta2_rest_scan, operIn, operCp, operOut, operFx) - oralOpenSign * openNow
     theta2Now    <- finalData$Opercular_theta2_rest_scan
@@ -3393,22 +3393,22 @@ for(i in 1:nVids) {
 
     # Resting angles from the four-bar model
     finalData$Oral_theta3_rest <- fourBarTheta3(finalData$Oral_theta2_rest,
-                                                finalData$Mandible_input_length, finalData$Maxilla_length,
-                                                finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
+                                                finalData$Mandible_input_length_side, finalData$Maxilla_length_side,
+                                                finalData$Maxilla_palatine_length_side, finalData$Oral_fixed_length_side)
     
     finalData$Opercular_theta4_rest <- fourBarTheta4(finalData$Opercular_theta2_rest,
-                                                     finalData$Operculum_length, finalData$IOP_link_length,
-                                                     finalData$RA_process_length, finalData$Opercular_fixed_length)
+                                                     finalData$Operculum_length_side, finalData$IOP_link_length_side,
+                                                     finalData$RA_process_length_side, finalData$Opercular_fixed_length_side)
     
     
     # Output angles at the static input rotations
     finalData$Oral_theta3_30 <- fourBarTheta3(finalData$Oral_theta2_rest + oralOpenSign * oralStaticAngle,
-                                              finalData$Mandible_input_length, finalData$Maxilla_length,
-                                              finalData$Maxilla_palatine_length, finalData$Oral_fixed_length)
+                                              finalData$Mandible_input_length_side, finalData$Maxilla_length_side,
+                                              finalData$Maxilla_palatine_length_side, finalData$Oral_fixed_length_side)
     
     finalData$Opercular_theta4_10 <- fourBarTheta4(finalData$Opercular_theta2_rest + opercularOpenSign * opercularStaticAngle,
-                                                   finalData$Operculum_length, finalData$IOP_link_length,
-                                                   finalData$RA_process_length, finalData$Opercular_fixed_length)
+                                                   finalData$Operculum_length_side, finalData$IOP_link_length_side,
+                                                   finalData$RA_process_length_side, finalData$Opercular_fixed_length_side)
     
     
     # Static KT (average output rotation / input rotation, from rest to the static input angle)
@@ -3433,10 +3433,10 @@ for(i in 1:nVids) {
     # Opercular: input angle = resting input angle + measured neurocranium rotation (proxy for opercular rotation)
     # NA wherever the rotation or a scan value is missing
 
-    oralIn  <- finalData$Mandible_input_length
-    oralCp  <- finalData$Maxilla_length
-    oralOut <- finalData$Maxilla_palatine_length
-    oralFx  <- finalData$Oral_fixed_length
+    oralIn  <- finalData$Mandible_input_length_side
+    oralCp  <- finalData$Maxilla_length_side
+    oralOut <- finalData$Maxilla_palatine_length_side
+    oralFx  <- finalData$Oral_fixed_length_side
 
     # Oral four-bar at tmax
     finalData$Oral_theta2_tmax <- finalData$Oral_theta2_rest + oralOpenSign * finalData$Mandible_ang_tmax
@@ -3512,8 +3512,8 @@ for(i in 1:nVids) {
     # How many individuals have each ROM?
   print(sapply(names(romPairs), function(romNow) length(unique(finalData$Unique.ID[!is.na(finalData[[romNow]])]))))
 
-    # Mandible_depression_ROM should equal Mandible_length * sin(Mandible_ROM) exactly, because each fish has one Mandible_length
-  print(all.equal(finalData$Mandible_depression_ROM, finalData$Mandible_length * sin(finalData$Mandible_ROM)))
+    # Mandible_depression_ROM should equal Mandible_length_side * sin(Mandible_ROM) exactly, because each fish has one Mandible_length_side
+  print(all.equal(finalData$Mandible_depression_ROM, finalData$Mandible_length_side * sin(finalData$Mandible_ROM)))
   
     # Maxilla sign check: most videos should have positive maxilla rotation at tmax (ventral tip swung anteriorly)
   print(sum(finalData$Maxilla_ang_tmax < 0, na.rm=TRUE))

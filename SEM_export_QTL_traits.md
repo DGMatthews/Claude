@@ -20,10 +20,10 @@ These files hold every variable in the final suction-feeding path model (SEM), i
 - **Assembly:** `4_SEM_dataset.R` combines all of these. `5_SEM_path_analysis.R` fits the model and adds the Effort scores. `6_SEM_exports.R` writes these files.
 
 **Lengths are true 3D lengths.** Script 1 also makes side-view versions of some lengths (the left-right component removed), but only to compare the scans with the 2D video: the jaw triangle that gives the mandible angle, and the four-bar models. In the path model these side-view lengths are calculated from the 3D ones:
-- `Mandible_length` = √(`Mandible_length_3D`² − (`W_jaw_joint`/2)²);
+- `Mandible_length_side` = √(`Mandible_length_3D`² − (`W_jaw_joint`/2)²);
 - each four-bar link = its `*_3D` length × its `*_side_ratio`. The side ratio is the side-view length divided by the 3D length, i.e. the cosine of how far the link tilts out of the side-view plane, so it is a real shape trait too.
 
-Map the `*_3D` lengths, `W_jaw_joint` and the `*_side_ratio` traits. The side-view lengths are in the sheets (`group_guess` = `side-view length (video comparison)`), but they are calculations from those traits, not separate traits.
+Map the `*_3D` lengths, `W_jaw_joint` and the `*_side_ratio` traits. The side-view lengths all end in `_side` (`*_side`, e.g. `RA_process_length_side`), in these sheets and in `scan_measurements.csv`. They are in the sheets (`group_guess` = `side-view length (video comparison)`), but they are calculations from those traits, not separate traits.
 
 **No size correction has been applied.** Every sheet includes the fish's standard length, `SL` in mm, for the size corrections. It comes from script 4 (`slColumn`: the scan file, else the data sheet). `SL` is not part of the SEM.
 

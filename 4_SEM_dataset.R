@@ -183,10 +183,11 @@ rm(list=ls())
     # Script 5 rebuilds each side-view link as 3D length * side ratio (an identity), so the four-bar model keeps the side-view
     # lengths it is compared with the video in, while the morphology in the path model is the true 3D length plus the tilt
   kin$IOP_link_length_3D <- kin$IOP_length_3D + kin$IOP_ligament_length_3D
+  # Base names: <link>_side = side-view length (scripts 1 and 2), <link>_3D = 3D length, <link>_side_ratio = their ratio
   fourBarLinks <- c("Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
                     "Operculum_length", "IOP_link_length", "RA_process_length", "Opercular_fixed_length")
   for(linkNow in fourBarLinks) {
-    kin[[paste0(linkNow, "_side_ratio")]] <- kin[[linkNow]] / kin[[paste0(linkNow, "_3D")]]
+    kin[[paste0(linkNow, "_side_ratio")]] <- kin[[paste0(linkNow, "_side")]] / kin[[paste0(linkNow, "_3D")]]
   }
   # Check: side-view lengths can't be longer than 3D ones (ratio <= 1). Larger values mean script 2 and the scan file disagree
     # (e.g. the scan file was updated after script 2 ran)
@@ -306,9 +307,9 @@ rm(list=ls())
   fishVars <- c("Protrusion_ROM", "Mandible_ROM", "Hyoid_ROM", "Neurocranium_ROM",
                 "Oral_4bar_KT", "Opercular_4bar_KT", "Oral_theta2_rest", "Oral_theta3_rest", "Opercular_theta2_rest", "Opercular_theta4_rest",
                 "Oral_input_ratio", "Oral_coupler_ratio", "Oral_output_ratio",
-                "Opercular_input_ratio", "Opercular_coupler_ratio", "Opercular_output_ratio", "IOP_link_length",
-                "Mandible_length", "Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
-                "Operculum_length", "RA_process_length", "Opercular_fixed_length", "Neurocranium_length",
+                "Opercular_input_ratio", "Opercular_coupler_ratio", "Opercular_output_ratio", "IOP_link_length_side",
+                "Mandible_length_side", "Mandible_input_length_side", "Maxilla_length_side", "Maxilla_palatine_length_side", "Oral_fixed_length_side",
+                "Operculum_length_side", "RA_process_length_side", "Opercular_fixed_length_side", "Neurocranium_length",
                 "W_jaw", "W_head", "D_head", "Ceratohyal_length",
                 "Epaxial_CSA", "Hypaxial_CSA", "Sternohyoideus_CSA", "IOP_ligament_CSA", "Protractor_hyoideus_CSA",
                 "Supraoccipital_crest_depth", "Neurocranium_MA", "Urohyal_length", "Length_premaxilla_asc_arm",

@@ -80,7 +80,7 @@ Each maximum has the same predictors as the variable at tmax, and takes the plac
 | `Protrusion_Max` | `Neurocranium_tip_disp_Max + Maxilla_tip_disp_Max` | `Protrusion_t_mean`, `Protrusion_tmax`, `V_buccal_Max` |
 | `Hyoid_Max` | `Relative_tmax * Hyoid_ROM` | `Hyoid_depression_t_mean`, `Hyoid_depression_tmax`, `V_buccal_Max` |
 | `Neurocranium_Max` | `Relative_tmax * Neurocranium_ROM` | `Neurocranium_rotation_tmax` |
-| `Mandible_depression_Max` | identity: `Mandible_length * sin(Mandible_Max)` | `Mandible_depression_t_mean`, `R_Max` |
+| `Mandible_depression_Max` | identity: `Mandible_length_side * sin(Mandible_Max)` | `Mandible_depression_t_mean`, `R_Max` |
 | `A_Max` | identity: `(pi * W_jaw / 2) * R_Max` | `V_buccal_Max` |
 | `Neurocranium_tip_disp_Max` | identity: `Neurocranium_Max * Neurocranium_length` | `Protrusion_Max` |
 
