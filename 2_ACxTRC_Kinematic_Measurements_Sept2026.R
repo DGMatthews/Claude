@@ -1104,7 +1104,7 @@ print(length(unique(finalData$Unique.ID)))
         Operculum_length           = "Operculum_length",         ### CHANGE  input link
         IOP_length                 = "IOP_length",               ### CHANGE  coupler part 1
         IOP_ligament_length        = "IOP_ligament_length",      ### CHANGE  coupler part 2
-        RA_process_length          = "RA_process_length",        ### CHANGE  output link: ventral point of the jaw joint (landmark 7) to the RA tip
+        RA_process_length          = "RA_process_length",        ### CHANGE  output link
         Opercular_fixed_length     = "Opercular_fixed_length",   ### CHANGE  fixed link
         Opercular_theta2_rest_scan = "Opercular_theta2_rest",    ### CHANGE  as scanned (mouth possibly open). Corrected to closed after the loop
         Opercular_theta4_rest_scan = "Opercular_theta4_rest"     ### CHANGE  delete this line if theta4_rest isn't measured in the scans
