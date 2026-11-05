@@ -243,7 +243,7 @@ rm(list=ls())
     "Operculum_length_3D", "IOP_length_3D", "IOP_ligament_length_3D", "RA_process_length_3D", "Opercular_fixed_length_3D",
     # Checks
     "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check",
-    "Eye_parasph_AP_check", "Eye_parasph_DV_check", "RA_pivot_offset_check")
+    "Eye_parasph_AP_check", "Eye_parasph_DV_check")
 
   scanMeas <- data.frame(specimen  = hardSpecimens,
                          Family    = rep(NA_character_, nSpec),
@@ -414,21 +414,30 @@ rm(list=ls())
       scanMeas$Gape_rest_check[i] <- dist3D(lmk("mandTip"), lmk("pmxTip")) / scanMeas$Mandible_length[i]
 
 
+    ##### Four-bar pivot at the jaw joint
+      ### CHANGE  Both four-bars pivot at the ventral point of the mandibular joint (landmark 7), not the joint centre (midpoint of 6 and 7)
+        # The RA process is short, so the error of placing the dorsal point (6) was a large part of its length when measured from the
+        # joint centre; from landmark 7 it shows a known RA QTL the joint-centre version missed. Every four-bar link and angle at the jaw
+        # joint uses landmark 7, so each linkage has one pivot there. The jaw triangle (Mandible_length, Nasal_QMJ_dist), W_jaw_joint and
+        # the skull frame still use the joint centre
+      jointPivot <- lmk("jointVentL")
+
+
     ##### Oral four-bar
       # Input = mandible (joint to ventral maxilla tip), coupler = maxilla, output = dorsal maxilla tip to palatine, fixed = joint to palatine
-      scanMeas$Mandible_input_length[i]   <- distSide(jointL, lmk("maxVent"))
+      scanMeas$Mandible_input_length[i]   <- distSide(jointPivot, lmk("maxVent"))
       scanMeas$Maxilla_length[i]          <- distSide(lmk("maxVent"), lmk("maxDors"))
       scanMeas$Maxilla_palatine_length[i] <- distSide(lmk("maxDors"), lmk("palatine"))
-      scanMeas$Oral_fixed_length[i]       <- distSide(jointL, lmk("palatine"))
+      scanMeas$Oral_fixed_length[i]       <- distSide(jointPivot, lmk("palatine"))
 
-      scanMeas$Mandible_input_length_3D[i]   <- dist3D(jointL, lmk("maxVent"))
+      scanMeas$Mandible_input_length_3D[i]   <- dist3D(jointPivot, lmk("maxVent"))
       scanMeas$Maxilla_length_3D[i]          <- dist3D(lmk("maxVent"), lmk("maxDors"))
       scanMeas$Maxilla_palatine_length_3D[i] <- dist3D(lmk("maxDors"), lmk("palatine"))
-      scanMeas$Oral_fixed_length_3D[i]       <- dist3D(jointL, lmk("palatine"))
+      scanMeas$Oral_fixed_length_3D[i]       <- dist3D(jointPivot, lmk("palatine"))
 
       # theta2 = angle at the joint from the fixed link (joint -> palatine) to the input link (joint -> ventral maxilla tip)
-      oralFixedDir <- sideDir(jointL, lmk("palatine"))
-      scanMeas$Oral_theta2_rest[i] <- signedAngle(oralFixedDir, sideDir(jointL, lmk("maxVent")))
+      oralFixedDir <- sideDir(jointPivot, lmk("palatine"))
+      scanMeas$Oral_theta2_rest[i] <- signedAngle(oralFixedDir, sideDir(jointPivot, lmk("maxVent")))
 
       # Check: measured theta4 (fixed link direction to output link, at the palatine) vs. the Freudenstein + solution
         # Should be ~0. A large value means this linkage sits in the other assembly, and the kinematics script's four-bar would be wrong for it
@@ -441,29 +450,23 @@ rm(list=ls())
     ##### Opercular four-bar
       # Input = operculum (hyomandibular-opercular joint to IOP-SOP symphysis), coupler = IOP + IOP ligament,
         # output = retroarticular process, fixed = hyomandibular-opercular joint to jaw joint
-      ### CHANGE  RA process = ventral point of the mandibular joint (landmark 7) to the RA tip (10), not the joint centre (midpoint of 6 and 7)
-        # Measured this way it shows a known RA QTL that the joint-centre version missed. The fixed link still ends at the joint centre,
-        # so the linkage's two pivots at the jaw joint are offset by RA_pivot_offset_check (side view, mm); see the theta4 check below
       scanMeas$Operculum_length[i]       <- distSide(lmk("hyoOpJoint"), lmk("iopSopSym"))
       scanMeas$IOP_length[i]             <- distSide(lmk("iopTip"), lmk("iopSopSym"))
       scanMeas$IOP_ligament_length[i]    <- distSide(lmk("raTip"), lmk("iopTip"))
-      scanMeas$RA_process_length[i]      <- distSide(lmk("jointVentL"), lmk("raTip"))
-      scanMeas$Opercular_fixed_length[i] <- distSide(jointL, lmk("hyoOpJoint"))
+      scanMeas$RA_process_length[i]      <- distSide(jointPivot, lmk("raTip"))
+      scanMeas$Opercular_fixed_length[i] <- distSide(jointPivot, lmk("hyoOpJoint"))
 
       scanMeas$Operculum_length_3D[i]       <- dist3D(lmk("hyoOpJoint"), lmk("iopSopSym"))
       scanMeas$IOP_length_3D[i]             <- dist3D(lmk("iopTip"), lmk("iopSopSym"))
       scanMeas$IOP_ligament_length_3D[i]    <- dist3D(lmk("raTip"), lmk("iopTip"))
-      scanMeas$RA_process_length_3D[i]      <- dist3D(lmk("jointVentL"), lmk("raTip"))
-      scanMeas$Opercular_fixed_length_3D[i] <- dist3D(jointL, lmk("hyoOpJoint"))
+      scanMeas$RA_process_length_3D[i]      <- dist3D(jointPivot, lmk("raTip"))
+      scanMeas$Opercular_fixed_length_3D[i] <- dist3D(jointPivot, lmk("hyoOpJoint"))
 
       # theta2 = angle at the hyomandibular-opercular joint from the fixed link (-> jaw joint) to the input link (-> symphysis)
-      # theta4 = angle at the jaw joint from the same fixed-link direction to the output link (ventral joint point -> RA tip)
-      opFixedDir <- sideDir(lmk("hyoOpJoint"), jointL)
+      # theta4 = angle at the jaw joint from the same fixed-link direction to the output link (-> RA tip)
+      opFixedDir <- sideDir(lmk("hyoOpJoint"), jointPivot)
       scanMeas$Opercular_theta2_rest[i] <- signedAngle(opFixedDir, sideDir(lmk("hyoOpJoint"), lmk("iopSopSym")))
-      scanMeas$Opercular_theta4_rest[i] <- signedAngle(opFixedDir, sideDir(lmk("jointVentL"), lmk("raTip")))
-      # Distance from the joint centre to the ventral joint point (half the joint height, side view): the offset between the
-        # fixed link's end and the RA process's pivot
-      scanMeas$RA_pivot_offset_check[i] <- distSide(jointL, lmk("jointVentL"))
+      scanMeas$Opercular_theta4_rest[i] <- signedAngle(opFixedDir, sideDir(jointPivot, lmk("raTip")))
 
       # Check, as for the oral four-bar. Here it isn't exactly 0 even when correct, because the coupler is IOP + ligament
         # (bent at the IOP tip) rather than the straight symphysis-to-RA distance. The kinematics script reports the same difference
