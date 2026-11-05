@@ -242,8 +242,12 @@ library(lmerTest)
   # Reference values for the linearization (docs: "90% of max to avoid edge fitting problems")
     # "fracMax": refFrac x the value with the largest magnitude (keeps the sign, so pressure uses 90% of the most negative)
     # "median": the median
+    # "fishMaxMedian": each fish's maximum (in the variable's usual direction: the most negative for variables whose median is
+      # negative, as the per-fish maxima of the QTL sheets in script 6), then the median of those across fish. The slopes are then
+      # taken at a typical fish's maximum: the values the QTL are mapped on, and not the largest fish's (no size correction is applied,
+      # so 90% of the overall maximum comes from the biggest fish and makes the product terms, e.g. ingested volume, far too steep)
     # Identities are then recalculated from their parents' reference values, so the reference point is consistent
-  refType <- "fracMax"   ### CHECK
+  refType <- "fishMaxMedian"   ### CHANGE  (was "fracMax")
   refFrac <- 0.9
   # Four-bar inputs (link lengths, rest angles) are taken at their medians whatever refType: each at 90% of its own maximum
     # gives a linkage that can't close (no real four-bar solution), so the four-bar derivatives and the KT paths would be lost
@@ -619,13 +623,20 @@ library(lmerTest)
   }
 
   # Reference value for the linearization
-  refValue <- function(x) {
+  refValue <- function(x, fish = NULL) {
     if(is.factor(x)) {
       presentNow <- levels(droplevels(x))   # middle of the levels that have rows
       return(factor(presentNow[ceiling(length(presentNow) / 2)], levels = levels(x), ordered = is.ordered(x)))
     }
-    x <- x[is.finite(x)]
-    if(length(x) == 0) return(NA_real_)
+    okNow <- is.finite(x)
+    if(!any(okNow)) return(NA_real_)
+    if(refType == "fishMaxMedian") {
+      if(is.null(fish)) stop("refType 'fishMaxMedian' needs the fish IDs")
+      negNow <- median(x[okNow]) < 0
+      fishMax <- tapply(x[okNow], fish[okNow], function(v) if(negNow) min(v) else max(v))
+      return(median(fishMax))
+    }
+    x <- x[okNow]
     if(refType == "median") median(x) else refFrac * x[which.max(abs(x))]
   }
 
@@ -758,7 +769,7 @@ library(lmerTest)
     refRow <- as.data.frame(lapply(setNames(refCols, refCols), function(v) {
       x <- d[[v]]
       if(v %in% refMedianVars && is.numeric(x)) return(if(any(is.finite(x))) median(x[is.finite(x)]) else NA_real_)
-      if(is.numeric(x) || is.factor(x)) refValue(x) else NA
+      if(is.numeric(x) || is.factor(x)) refValue(x, d$Fish_ID) else NA
     }))
     for(v in sideRatioLinks) {
       baseNow <- sub("_side$", "", v)

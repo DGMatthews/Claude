@@ -25,7 +25,7 @@ Every step that involves an SEM is in script 5. Script 4 (`4_SEM_dataset.R`) onl
 - **`#` equations use R's `*`.** This gives all main effects and interactions, so the three-way products have 7 terms each. At fish level that's a lot of parameters for the sample size.
 - **`*` (physics) equations use one product term (`I(...)`).** In the pressure equation each term is converted to Pa, so the coefficients should be about 1 if the physics holds.
 - **Units of `Total_ingested_volume`.** The coefficients are 1 only if it is in mm³.
-- **Linearization reference point.** Every variable is set to 90% of its largest-magnitude value. Identities are then recalculated from their parents' values, so the reference point is consistent (setting `refType`, with `"median"` as the alternative).
+- **Linearization reference point.** Every variable is set to a typical fish's maximum: its maximum within each fish (most negative for mostly-negative variables), then the median across fish (`refType = "fishMaxMedian"`). This matches the per-fish maxima used for QTL mapping; the earlier 90% of the overall maximum came from the largest fish, since nothing is size corrected. Four-bar inputs are at their medians. Identities are then recalculated from their parents' values, so the reference point is consistent (alternatives: `"fracMax"`, `"median"`).
 - **`Prey_num` in the path effects.** Its effect is the mean change per step up the order: (many − one) / 3.
 - **T is an Effort indicator and also a predictor (exogenous in the path model).** The d-separation test will flag claims between Effort and the timing variables if Effort really drives T. If it does, a path from Effort to T, or to the timing variables, may be needed.
 - **d-separation.**

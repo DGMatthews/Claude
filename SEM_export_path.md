@@ -18,7 +18,7 @@ How script 5 fits the model:
 - **Identities are not fitted.** These are variables calculated exactly from others (e.g. gape area = π · jaw width / 2 · gape radius, or the four-bar angles).
 - **Lengths are 3D.** Side-view lengths (left-right component removed) are used only where scan values are compared with the 2D video: the jaw triangle and the four-bar models. They are identities of the 3D lengths (`Mandible_length_side` from `Mandible_length_3D` and `W_jaw_joint`; each four-bar link = `*_3D` × `*_side_ratio`), so every morphological effect starts at a true 3D length.
 - **Effort is a latent variable.** It is measured by three indicators in `lavaan`, then split into a fish-level part (`Behavior_fish`, the fish's mean score) and a strike-level part (`Effort_strike`).
-- **Direct effects are slopes.** The direct effect of a parent on a child is the derivative of the child's equation with respect to the parent. It is evaluated at a reference point: every variable at 90% of its largest value, except the four-bar link lengths and rest angles, which are at their medians.
+- **Direct effects are slopes.** The direct effect of a parent on a child is the derivative of the child's equation with respect to the parent. It is evaluated at a reference point: a typical fish's maximum, i.e. each variable's maximum within each fish (the most negative for mostly-negative variables such as pressure), then the median across fish. These are the values the QTL sheets hold. The four-bar link lengths and rest angles are at their medians, so the linkages close.
   - Many equations contain products and interactions, so this slope is a local, linearised effect at that point. It is not a single regression coefficient.
 
 ## Files
