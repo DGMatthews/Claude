@@ -16,6 +16,7 @@ The pipeline runs six scripts in order:
 How script 5 fits the model:
 - **Piecewise SEM.** Each equation is fitted separately, as a mixed model with a random intercept for fish (`lme4::lmer`), or as `lm` when the response has one value per fish.
 - **Identities are not fitted.** These are variables calculated exactly from others (e.g. gape area = π · jaw width / 2 · gape radius, or the four-bar angles).
+- **Lengths are 3D.** Side-view lengths (left-right component removed) are used only where scan values are compared with the 2D video: the jaw triangle and the four-bar models. They are identities of the 3D lengths (`Mandible_length` from `Mandible_length_3D` and `W_jaw_joint`; each four-bar link = `*_3D` × `*_side_ratio`), so every morphological effect starts at a true 3D length.
 - **Effort is a latent variable.** It is measured by three indicators in `lavaan`, then split into a fish-level part (`Behavior_fish`, the fish's mean score) and a strike-level part (`Effort_strike`).
 - **Direct effects are slopes.** The direct effect of a parent on a child is the derivative of the child's equation with respect to the parent. It is evaluated at a reference point: every variable at 90% of its largest value, except the four-bar link lengths and rest angles, which are at their medians.
   - Many equations contain products and interactions, so this slope is a local, linearised effect at that point. It is not a single regression coefficient.
@@ -28,7 +29,7 @@ How script 5 fits the model:
 |---|---|
 | `variable` | variable name, as in the scripts |
 | `role` | `exogenous` (no arrows in: morphology, timing inputs, covariates), `fitted` (has a regression equation), `identity` (calculated exactly from its parents), `outcome` (performance: `Max_sub_pressure` = peak sub-ambient pressure, Pa; `Total_ingested_volume` = water volume ingested, mm³), `latent` (the Effort score) |
-| `group_guess` | rough category assigned from the name, for layout and colour: morphology, kinematics, timing, buccal volume, flow, ram, effort, measurement covariate, performance. Check it and edit it if needed |
+| `group_guess` | rough category assigned from the name, for layout and colour: morphology, side-view length (video comparison), kinematics, timing, buccal volume, flow, ram, effort, measurement covariate, performance. Check it and edit it if needed |
 | `equation` | the right-hand side of the variable's equation, in R formula syntax. `*` means main effects plus interaction, `I(...)` is a single calculated term, and `:` marks an interaction term in the coefficient table |
 | `n_rows` | strikes used to fit the equation |
 | `R2_marginal`, `R2_conditional` | variance explained by the fixed effects, and by fixed + fish random effects (Nakagawa & Schielzeth) |

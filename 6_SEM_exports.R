@@ -123,6 +123,9 @@ rm(list=ls())
     if(v %in% c("Effort_score", "Effort_strike", "Behavior_fish")) return("effort")
     if(grepl("_node_zR", v)) return("measurement covariate")
     if(grepl("^U_ram", v)) return("ram")
+    # Side-view lengths (script 1): only for comparing with the video (jaw triangle, four-bar model). Map the *_3D lengths instead
+    if(v %in% c("Mandible_length", "Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
+                "Operculum_length", "IOP_link_length", "RA_process_length", "Opercular_fixed_length")) return("side-view length (video comparison)")
     if(grepl("^U_flow|^Q_flow|^Cov_", v)) return("flow")
     if(grepl("V_buccal|^Q_buccal|U_flow_ff_predicted", v)) return("buccal volume")
     if(v %in% c("T", "ttpg", "Time_hyoid", "Time_cranial", "tmax_from_Tstart", "Relative_tmax", "Relative_ttpg", "Kinetic_Synchronization")) return("timing")

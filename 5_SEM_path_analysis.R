@@ -250,6 +250,9 @@ library(lmerTest)
   refMedianVars <- c("Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
                      "Operculum_length", "IOP_link_length", "RA_process_length", "Opercular_fixed_length",
                      "Oral_theta2_rest", "Opercular_theta2_rest")   ### CHECK
+  # The side-view links above are identities (3D length * side ratio). Their 3D lengths are taken at their medians, and their
+    # side ratios at median(side-view length) / median(3D length), so the rebuilt side-view links are exactly at their medians
+  sideRatioLinks <- refMedianVars[!grepl("_rest$", refMedianVars)]
 
   # Bootstrap
     # 0 = no bootstrap (no confidence intervals; everything else is the same)
@@ -325,7 +328,7 @@ library(lmerTest)
     Protrusion_ROM      = "Length_premaxilla_asc_arm",
 
     # Mean mandible depression (#)
-    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length) + Mandible_depression_Max + Mandible_depression_tmax",
+    Mandible_depression_t_mean = "Relative_ttpg * Mandible_ROM + ttpg * Mandible_dep_vel_tmax + Hyoid_depression_t_mean * I(Protractor_hyoideus_CSA / Mandible_length_3D) + Mandible_depression_Max + Mandible_depression_tmax",
 
     # Measured flow (#)
       # + distance of the static velocity node from the mouth: what the aperture correction leaves
@@ -344,7 +347,7 @@ library(lmerTest)
     V_buccal_Max = "Hyoid_Max + Protrusion_Max + A_Max + W_jaw + W_head + D_head + Neurocranium_length",
 
     # Mandible rotation (#)
-    Mandible_angular_vel_tmax = "Neurocranium_angular_vel_tmax * {OpercularKT} * IOP_ligament_CSA + Hyoid_vel_tmax * I(Protractor_hyoideus_CSA / Mandible_length)",
+    Mandible_angular_vel_tmax = "Neurocranium_angular_vel_tmax * {OpercularKT} * IOP_ligament_CSA + Hyoid_vel_tmax * I(Protractor_hyoideus_CSA / Mandible_length_3D)",
 
     # Hyoid (#)
     Hyoid_vel_tmax          = "Hypaxial_CSA * Effort_score * Sternohyoideus_CSA + Urohyal_length",
@@ -380,7 +383,7 @@ library(lmerTest)
     # prediction (change in theta4 from rest), so the measured Mandible_ang_tmax is the response here
   checkEqs <- c(
     Maxilla_ang_tmax  = "Maxilla_ang_predicted_tmax",
-    Mandible_ang_tmax = "Mandible_ang_predicted_tmax * IOP_ligament_CSA + Hyoid_depression_tmax * I(Protractor_hyoideus_CSA / Mandible_length)")   ### CHECK
+    Mandible_ang_tmax = "Mandible_ang_predicted_tmax * IOP_ligament_CSA + Hyoid_depression_tmax * I(Protractor_hyoideus_CSA / Mandible_length_3D)")   ### CHECK
 
   # Identities (***): response = R expression of other columns. Used for the path effects and checked against the data
     # Only the ones connected to the path equations are used (the static and dynamic KT are both listed)
@@ -392,6 +395,17 @@ library(lmerTest)
     U_flow_ff_tmax           = "U_flow_ef_meas_tmax + U_ram_tmax",
     U_flow_ff_acc_tmax       = "U_flow_ef_meas_acc_tmax + U_ram_acc_tmax",
     U_flow_ff_mean           = "U_flow_ef_meas_mean + U_ram_mean",
+    # Side-view lengths from the true 3D ones (script 1). The side view is only for comparing with the video: the jaw triangle
+      # (Mandible_length, times the video's mandible angle below) and the four-bar model. Morphology elsewhere is the 3D length
+    Mandible_length          = "sqrt(Mandible_length_3D^2 - (W_jaw_joint / 2)^2)",   # as script 1 calculates it
+    Mandible_input_length    = "Mandible_input_length_3D * Mandible_input_length_side_ratio",
+    Maxilla_length           = "Maxilla_length_3D * Maxilla_length_side_ratio",
+    Maxilla_palatine_length  = "Maxilla_palatine_length_3D * Maxilla_palatine_length_side_ratio",
+    Oral_fixed_length        = "Oral_fixed_length_3D * Oral_fixed_length_side_ratio",
+    Operculum_length         = "Operculum_length_3D * Operculum_length_side_ratio",
+    IOP_link_length          = "IOP_link_length_3D * IOP_link_length_side_ratio",
+    RA_process_length        = "RA_process_length_3D * RA_process_length_side_ratio",
+    Opercular_fixed_length   = "Opercular_fixed_length_3D * Opercular_fixed_length_side_ratio",
     Mandible_dep_vel_tmax    = "Mandible_length * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
     Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
     Mandible_depression_Max  = "Mandible_length * sin(Mandible_Max)",   # strike maxima, as at tmax
@@ -746,6 +760,13 @@ library(lmerTest)
       if(v %in% refMedianVars && is.numeric(x)) return(if(any(is.finite(x))) median(x[is.finite(x)]) else NA_real_)
       if(is.numeric(x) || is.factor(x)) refValue(x) else NA
     }))
+    for(v in sideRatioLinks) {
+      len3DNow <- paste0(v, "_3D"); ratioNow <- paste0(v, "_side_ratio")
+      if(!all(c(v, len3DNow, ratioNow) %in% names(d))) next
+      medNow <- function(x) if(any(is.finite(x))) median(x[is.finite(x)]) else NA_real_
+      refRow[[len3DNow]] <- medNow(d[[len3DNow]])
+      refRow[[ratioNow]] <- medNow(d[[v]]) / refRow[[len3DNow]]
+    }
     for(v in intersect(nodeOrder, names(activeIdentities))) {
       refRow[[v]] <- eval(parse(text = activeIdentities[[v]])[[1]], refRow, globalenv())
     }
