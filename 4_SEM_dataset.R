@@ -149,7 +149,14 @@ rm(list=ls())
   scanExtra  <- c(Epaxial_CSA = epaxialCol, Hypaxial_CSA = "Hypaxial_CSA", Sternohyoideus_CSA = "Sternohyoideus_CSA",
                   IOP_ligament_CSA = "IOP_ligament_CSA", Protractor_hyoideus_CSA = "Protractor_hyoideus_CSA",
                   Supraoccipital_crest_depth = "Supraoccipital_crest_depth", Urohyal_length = "Urohyal_length",
-                  Length_premaxilla_asc_arm = "Length_premaxilla_asc_arm")
+                  Length_premaxilla_asc_arm = "Length_premaxilla_asc_arm",
+                  ### CHANGE  true 3D lengths (script 1). The side-view lengths from script 2 are used only inside the four-bar model and
+                    # the jaw triangle, where they are compared with the video. Everywhere else (SEM morphology, QTL traits) uses these
+                  Mandible_length_3D = "Mandible_length_3D", W_jaw_joint = "W_jaw_joint",
+                  Mandible_input_length_3D = "Mandible_input_length_3D", Maxilla_length_3D = "Maxilla_length_3D",
+                  Maxilla_palatine_length_3D = "Maxilla_palatine_length_3D", Oral_fixed_length_3D = "Oral_fixed_length_3D",
+                  Operculum_length_3D = "Operculum_length_3D", IOP_length_3D = "IOP_length_3D", IOP_ligament_length_3D = "IOP_ligament_length_3D",
+                  RA_process_length_3D = "RA_process_length_3D", Opercular_fixed_length_3D = "Opercular_fixed_length_3D")
   # Standard length (see slColumn)
   if(slColumn %in% names(scan)) {
     kin$SL <- suppressWarnings(as.numeric(scan[[slColumn]][scanRow]))
@@ -164,9 +171,28 @@ rm(list=ls())
                  paste(candidates, collapse = ", ")))
   }
 
+  missingScan <- setdiff(scanExtra, names(scan))
+  if(length(missingScan) > 0) {
+    stop("These columns are not in the scan file (rerun 1_Scan_measurements_from_landmarks.R?): ", paste(missingScan, collapse = ", "))
+  }
   for(nm in names(scanExtra)) {
     kin[[nm]] <- scan[[scanExtra[[nm]]]][scanRow]
   }
+
+  # Four-bar links: 3D length and side-view share (side-view length / 3D length, = cos of the link's tilt out of the side-view plane)
+    # Script 5 rebuilds each side-view link as 3D length * side ratio (an identity), so the four-bar model keeps the side-view
+    # lengths it is compared with the video in, while the morphology in the path model is the true 3D length plus the tilt
+  kin$IOP_link_length_3D <- kin$IOP_length_3D + kin$IOP_ligament_length_3D
+  fourBarLinks <- c("Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
+                    "Operculum_length", "IOP_link_length", "RA_process_length", "Opercular_fixed_length")
+  for(linkNow in fourBarLinks) {
+    kin[[paste0(linkNow, "_side_ratio")]] <- kin[[linkNow]] / kin[[paste0(linkNow, "_3D")]]
+  }
+  # Check: side-view lengths can't be longer than 3D ones (ratio <= 1). Larger values mean script 2 and the scan file disagree
+    # (e.g. the scan file was updated after script 2 ran)
+  ratioCols <- paste0(fourBarLinks, "_side_ratio")
+  print("Four-bar links, side-view length / 3D length (should be <= 1):")
+  print(sapply(kin[!duplicated(kin$Unique.ID), ratioCols], function(x) round(c(summary(x)[c(1, 3, 6)], n_over_1 = sum(x > 1 + 1e-6, na.rm = TRUE)), 3)))
   print(paste0(sum(!is.na(scanRow)), " videos matched to a scan"))
 
 
@@ -285,7 +311,9 @@ rm(list=ls())
                 "Operculum_length", "RA_process_length", "Opercular_fixed_length", "Neurocranium_length",
                 "W_jaw", "W_head", "D_head", "Ceratohyal_length",
                 "Epaxial_CSA", "Hypaxial_CSA", "Sternohyoideus_CSA", "IOP_ligament_CSA", "Protractor_hyoideus_CSA",
-                "Supraoccipital_crest_depth", "Neurocranium_MA", "Urohyal_length", "Length_premaxilla_asc_arm")
+                "Supraoccipital_crest_depth", "Neurocranium_MA", "Urohyal_length", "Length_premaxilla_asc_arm",
+                "Mandible_length_3D", "W_jaw_joint",
+                paste0(fourBarLinks, "_3D"), paste0(fourBarLinks, "_side_ratio"))
 
   # Flags kept for subsetting
   flagVars <- c("Tend_censored", "Mouth_open_corrected", "Hyoid_depth_source")
@@ -468,18 +496,18 @@ rm(list=ls())
     Protrusion_tmax     = c("Protrusion_tmax", "Neurocranium_tip_disp_tmax", "Maxilla_tip_disp_tmax"),
     Protrusion_vel_tmax = c("Protrusion_vel_tmax", "Neurocranium_linear_vel_tmax", "Maxilla_linear_vel_tmax"),
     Protrusion_mean     = c("Protrusion_t_mean", "Relative_ttpg", "Protrusion_ROM"),
-    Mandible_dep_mean   = c("Mandible_depression_t_mean", "Relative_ttpg", "Mandible_ROM", "ttpg", "Mandible_dep_vel_tmax", "Hyoid_depression_t_mean", "Protractor_hyoideus_CSA", "Mandible_length"),
+    Mandible_dep_mean   = c("Mandible_depression_t_mean", "Relative_ttpg", "Mandible_ROM", "ttpg", "Mandible_dep_vel_tmax", "Hyoid_depression_t_mean", "Protractor_hyoideus_CSA", "Mandible_length_3D"),
     Flow_tmax           = c("U_flow_ef_meas_tmax", "Relative_tmax", "Kinetic_Synchronization", "V_buccal_vel_tmax", "A_tmax"),
     Flow_acc_tmax       = c("U_flow_ef_meas_acc_tmax", "Relative_tmax", "Kinetic_Synchronization", "V_buccal_acc_tmax", "V_buccal_vel_tmax", "A_vel_tmax", "A_tmax"),
     Flow_mean           = c("U_flow_ef_meas_mean", "Kinetic_Synchronization", "U_flow_ff_predicted_mean_bigGape"),
-    Mandible_angvel     = c("Mandible_angular_vel_tmax", "Neurocranium_angular_vel_tmax", "Opercular_KT_tmax", "IOP_ligament_CSA", "Hyoid_vel_tmax", "Protractor_hyoideus_CSA", "Mandible_length"),
+    Mandible_angvel     = c("Mandible_angular_vel_tmax", "Neurocranium_angular_vel_tmax", "Opercular_KT_tmax", "IOP_ligament_CSA", "Hyoid_vel_tmax", "Protractor_hyoideus_CSA", "Mandible_length_3D"),
     Hyoid_vel_tmax      = c("Hyoid_vel_tmax", "Hypaxial_CSA", "Sternohyoideus_CSA", "Urohyal_length"),            # + Effort (script 5)
     Hyoid_dep_tmax      = c("Hyoid_depression_tmax", "Relative_tmax", "Hyoid_ROM"),
     Neuro_linvel_tmax   = c("Neurocranium_linear_vel_tmax", "Epaxial_CSA", "Neurocranium_MA"),                     # + Effort (script 5)
     Neuro_rotation_tmax = c("Neurocranium_rotation_tmax", "Relative_tmax", "Neurocranium_ROM"),
     Maxilla_angvel      = c("Maxilla_angular_vel_tmax", "Mandible_angular_vel_tmax", "Oral_KT_tmax"),
     Maxilla_ang_check   = c("Maxilla_ang_tmax", "Maxilla_ang_predicted_tmax"),
-    Mandible_ang_check  = c("Mandible_ang_predicted_tmax", "Opercular_theta4_tmax", "Opercular_theta4_rest", "IOP_ligament_CSA", "Hyoid_depression_tmax", "Protractor_hyoideus_CSA", "Mandible_length"),
+    Mandible_ang_check  = c("Mandible_ang_predicted_tmax", "Opercular_theta4_tmax", "Opercular_theta4_rest", "IOP_ligament_CSA", "Hyoid_depression_tmax", "Protractor_hyoideus_CSA", "Mandible_length_3D"),
     Protrusion_ROM      = c("Protrusion_ROM", "Length_premaxilla_asc_arm"),
     Effort_indicators   = c("Neurocranium_Adj_vel_mean", "Hyoid_Adj_vel_mean", "T"),                               # all three (FIML in script 5 can use fewer)
     Effort_covariates   = c("Prey_num", "Fasting_time", "Satiation"))
