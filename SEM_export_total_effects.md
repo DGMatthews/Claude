@@ -11,7 +11,7 @@ It is for combining with the QTL results, to predict how much each QTL affects p
 ## Where the numbers come from
 
 - **Fitting:** `5_SEM_path_analysis.R` fits the model (see `SEM_export_path.md`).
-- **Direct effects:** each arrow's direct effect is the slope of the child's equation with respect to the parent, at a reference point. The reference point is every variable at 90% of its largest value, except the four-bar inputs, which are at their medians. Identities (exact calculations) are linearized the same way.
+- **Direct effects:** each arrow's direct effect is the slope of the child's equation with respect to the parent, at a reference point. The reference point is a typical fish's maximum: each variable's maximum within each fish (the most negative for mostly-negative variables such as pressure), then the median across fish, so the slopes apply to the per-fish maxima in `QTL_traits_per_fish.csv`. The four-bar inputs are at their medians, so the linkages close. (Before, the reference was 90% of each variable's overall maximum, which came from the largest fish and made the product terms far too steep.) Identities (exact calculations) are linearized the same way.
 - **Total effects:** the total effect of x on an outcome is the sum, over every path from x to the outcome, of the products of the direct effects along the path. With all direct effects in a matrix B, the totals are (I − B)⁻¹ − I.
 - **Writing the file:** `6_SEM_exports.R` writes it from script 5's saved results.
 
