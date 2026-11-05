@@ -247,8 +247,8 @@ library(lmerTest)
   refFrac <- 0.9
   # Four-bar inputs (link lengths, rest angles) are taken at their medians whatever refType: each at 90% of its own maximum
     # gives a linkage that can't close (no real four-bar solution), so the four-bar derivatives and the KT paths would be lost
-  refMedianVars <- c("Mandible_input_length", "Maxilla_length", "Maxilla_palatine_length", "Oral_fixed_length",
-                     "Operculum_length", "IOP_link_length", "RA_process_length", "Opercular_fixed_length",
+  refMedianVars <- c("Mandible_input_length_side", "Maxilla_length_side", "Maxilla_palatine_length_side", "Oral_fixed_length_side",
+                     "Operculum_length_side", "IOP_link_length_side", "RA_process_length_side", "Opercular_fixed_length_side",
                      "Oral_theta2_rest", "Opercular_theta2_rest")   ### CHECK
   # The side-view links above are identities (3D length * side ratio). Their 3D lengths are taken at their medians, and their
     # side ratios at median(side-view length) / median(3D length), so the rebuilt side-view links are exactly at their medians
@@ -363,7 +363,7 @@ library(lmerTest)
     # Maxilla (*): output angular velocity = input angular velocity x KT
     Maxilla_angular_vel_tmax = "I(Mandible_angular_vel_tmax * {OralKT})",
     # Linear velocity of the maxilla tip = angular velocity x maxilla length (*). Measured separately (tip landmark), so fitted
-    Maxilla_linear_vel_tmax  = "I(Maxilla_length * Maxilla_angular_vel_tmax)",
+    Maxilla_linear_vel_tmax  = "I(Maxilla_length_side * Maxilla_angular_vel_tmax)",
 
     # Effort (#), on the factor scores from step 1. Only used when effortCovariates
     Effort_score = "Prey_num + Satiation + Fasting_time",
@@ -388,27 +388,27 @@ library(lmerTest)
   # Identities (***): response = R expression of other columns. Used for the path effects and checked against the data
     # Only the ones connected to the path equations are used (the static and dynamic KT are both listed)
     # The four-bar functions and the sign settings come from script 2
-  oralLinks <- "Mandible_input_length, Maxilla_length, Maxilla_palatine_length, Oral_fixed_length"
-  operLinks <- "Operculum_length, IOP_link_length, RA_process_length, Opercular_fixed_length"
+  oralLinks <- "Mandible_input_length_side, Maxilla_length_side, Maxilla_palatine_length_side, Oral_fixed_length_side"
+  operLinks <- "Operculum_length_side, IOP_link_length_side, RA_process_length_side, Opercular_fixed_length_side"
   identityEqs <- c(
     # Fish frame = measured (water toward the fish) + ram (fish toward the water)
     U_flow_ff_tmax           = "U_flow_ef_meas_tmax + U_ram_tmax",
     U_flow_ff_acc_tmax       = "U_flow_ef_meas_acc_tmax + U_ram_acc_tmax",
     U_flow_ff_mean           = "U_flow_ef_meas_mean + U_ram_mean",
     # Side-view lengths from the true 3D ones (script 1). The side view is only for comparing with the video: the jaw triangle
-      # (Mandible_length, times the video's mandible angle below) and the four-bar model. Morphology elsewhere is the 3D length
-    Mandible_length          = "sqrt(Mandible_length_3D^2 - (W_jaw_joint / 2)^2)",   # as script 1 calculates it
-    Mandible_input_length    = "Mandible_input_length_3D * Mandible_input_length_side_ratio",
-    Maxilla_length           = "Maxilla_length_3D * Maxilla_length_side_ratio",
-    Maxilla_palatine_length  = "Maxilla_palatine_length_3D * Maxilla_palatine_length_side_ratio",
-    Oral_fixed_length        = "Oral_fixed_length_3D * Oral_fixed_length_side_ratio",
-    Operculum_length         = "Operculum_length_3D * Operculum_length_side_ratio",
-    IOP_link_length          = "IOP_link_length_3D * IOP_link_length_side_ratio",
-    RA_process_length        = "RA_process_length_3D * RA_process_length_side_ratio",
-    Opercular_fixed_length   = "Opercular_fixed_length_3D * Opercular_fixed_length_side_ratio",
-    Mandible_dep_vel_tmax    = "Mandible_length * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
-    Mandible_depression_tmax = "Mandible_length * sin(Mandible_ang_tmax)",
-    Mandible_depression_Max  = "Mandible_length * sin(Mandible_Max)",   # strike maxima, as at tmax
+      # (Mandible_length_side, times the video's mandible angle below) and the four-bar model. Morphology elsewhere is the 3D length
+    Mandible_length_side          = "sqrt(Mandible_length_3D^2 - (W_jaw_joint / 2)^2)",   # as script 1 calculates it
+    Mandible_input_length_side    = "Mandible_input_length_3D * Mandible_input_length_side_ratio",
+    Maxilla_length_side           = "Maxilla_length_3D * Maxilla_length_side_ratio",
+    Maxilla_palatine_length_side  = "Maxilla_palatine_length_3D * Maxilla_palatine_length_side_ratio",
+    Oral_fixed_length_side        = "Oral_fixed_length_3D * Oral_fixed_length_side_ratio",
+    Operculum_length_side         = "Operculum_length_3D * Operculum_length_side_ratio",
+    IOP_link_length_side          = "IOP_link_length_3D * IOP_link_length_side_ratio",
+    RA_process_length_side        = "RA_process_length_3D * RA_process_length_side_ratio",
+    Opercular_fixed_length_side   = "Opercular_fixed_length_3D * Opercular_fixed_length_side_ratio",
+    Mandible_dep_vel_tmax    = "Mandible_length_side * Mandible_angular_vel_tmax * cos(Mandible_ang_tmax)",
+    Mandible_depression_tmax = "Mandible_length_side * sin(Mandible_ang_tmax)",
+    Mandible_depression_Max  = "Mandible_length_side * sin(Mandible_Max)",   # strike maxima, as at tmax
     A_Max                    = "(pi * W_jaw / 2) * R_Max",
     Neurocranium_tip_disp_Max = "Neurocranium_Max * Neurocranium_length",
     A_mean                   = "(pi * W_jaw / 2) * R_t_mean",
@@ -761,7 +761,8 @@ library(lmerTest)
       if(is.numeric(x) || is.factor(x)) refValue(x) else NA
     }))
     for(v in sideRatioLinks) {
-      len3DNow <- paste0(v, "_3D"); ratioNow <- paste0(v, "_side_ratio")
+      baseNow <- sub("_side$", "", v)
+      len3DNow <- paste0(baseNow, "_3D"); ratioNow <- paste0(baseNow, "_side_ratio")
       if(!all(c(v, len3DNow, ratioNow) %in% names(d))) next
       medNow <- function(x) if(any(is.finite(x))) median(x[is.finite(x)]) else NA_real_
       refRow[[len3DNow]] <- medNow(d[[len3DNow]])
