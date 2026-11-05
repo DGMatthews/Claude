@@ -243,7 +243,7 @@ rm(list=ls())
     "Operculum_length_3D", "IOP_length_3D", "IOP_ligament_length_3D", "RA_process_length_3D", "Opercular_fixed_length_3D",
     # Checks
     "pairAngle_max_check", "Ceratohyal_half_width_check", "Oral_theta4_rest_diff_deg", "Opercular_theta4_rest_diff_deg", "Gape_rest_check",
-    "Eye_parasph_AP_check", "Eye_parasph_DV_check")
+    "Eye_parasph_AP_check", "Eye_parasph_DV_check", "RA_pivot_offset_check")
 
   scanMeas <- data.frame(specimen  = hardSpecimens,
                          Family    = rep(NA_character_, nSpec),
@@ -440,24 +440,30 @@ rm(list=ls())
 
     ##### Opercular four-bar
       # Input = operculum (hyomandibular-opercular joint to IOP-SOP symphysis), coupler = IOP + IOP ligament,
-        # output = retroarticular process (jaw joint to RA tip), fixed = hyomandibular-opercular joint to jaw joint
+        # output = retroarticular process, fixed = hyomandibular-opercular joint to jaw joint
+      ### CHANGE  RA process = ventral point of the mandibular joint (landmark 7) to the RA tip (10), not the joint centre (midpoint of 6 and 7)
+        # Measured this way it shows a known RA QTL that the joint-centre version missed. The fixed link still ends at the joint centre,
+        # so the linkage's two pivots at the jaw joint are offset by RA_pivot_offset_check (side view, mm); see the theta4 check below
       scanMeas$Operculum_length[i]       <- distSide(lmk("hyoOpJoint"), lmk("iopSopSym"))
       scanMeas$IOP_length[i]             <- distSide(lmk("iopTip"), lmk("iopSopSym"))
       scanMeas$IOP_ligament_length[i]    <- distSide(lmk("raTip"), lmk("iopTip"))
-      scanMeas$RA_process_length[i]      <- distSide(jointL, lmk("raTip"))
+      scanMeas$RA_process_length[i]      <- distSide(lmk("jointVentL"), lmk("raTip"))
       scanMeas$Opercular_fixed_length[i] <- distSide(jointL, lmk("hyoOpJoint"))
 
       scanMeas$Operculum_length_3D[i]       <- dist3D(lmk("hyoOpJoint"), lmk("iopSopSym"))
       scanMeas$IOP_length_3D[i]             <- dist3D(lmk("iopTip"), lmk("iopSopSym"))
       scanMeas$IOP_ligament_length_3D[i]    <- dist3D(lmk("raTip"), lmk("iopTip"))
-      scanMeas$RA_process_length_3D[i]      <- dist3D(jointL, lmk("raTip"))
+      scanMeas$RA_process_length_3D[i]      <- dist3D(lmk("jointVentL"), lmk("raTip"))
       scanMeas$Opercular_fixed_length_3D[i] <- dist3D(jointL, lmk("hyoOpJoint"))
 
       # theta2 = angle at the hyomandibular-opercular joint from the fixed link (-> jaw joint) to the input link (-> symphysis)
-      # theta4 = angle at the jaw joint from the same fixed-link direction to the output link (-> RA tip)
+      # theta4 = angle at the jaw joint from the same fixed-link direction to the output link (ventral joint point -> RA tip)
       opFixedDir <- sideDir(lmk("hyoOpJoint"), jointL)
       scanMeas$Opercular_theta2_rest[i] <- signedAngle(opFixedDir, sideDir(lmk("hyoOpJoint"), lmk("iopSopSym")))
-      scanMeas$Opercular_theta4_rest[i] <- signedAngle(opFixedDir, sideDir(jointL, lmk("raTip")))
+      scanMeas$Opercular_theta4_rest[i] <- signedAngle(opFixedDir, sideDir(lmk("jointVentL"), lmk("raTip")))
+      # Distance from the joint centre to the ventral joint point (half the joint height, side view): the offset between the
+        # fixed link's end and the RA process's pivot
+      scanMeas$RA_pivot_offset_check[i] <- distSide(jointL, lmk("jointVentL"))
 
       # Check, as for the oral four-bar. Here it isn't exactly 0 even when correct, because the coupler is IOP + ligament
         # (bent at the IOP tip) rather than the straight symphysis-to-RA distance. The kinematics script reports the same difference
@@ -559,8 +565,9 @@ rm(list=ls())
 
   # Family and individual for the soft-only fish
   noID <- is.na(scanOut$Family)
-  scanOut$Family[noID]    <- paste0(familyPrefix, sapply(strsplit(scanOut$specimen[noID], "_"), `[`, 2))
-  scanOut$Animal.ID[noID] <- sapply(strsplit(scanOut$specimen[noID], "_"), `[`, 3)
+    # vapply, so nothing changes when there are no soft-only fish (sapply would turn Animal.ID into a list, which write.csv can't save)
+  scanOut$Family[noID]    <- paste0(familyPrefix, vapply(strsplit(scanOut$specimen[noID], "_"), `[`, character(1), 2))
+  scanOut$Animal.ID[noID] <- vapply(strsplit(scanOut$specimen[noID], "_"), `[`, character(1), 3)
 
   # Each family-individual pair must be unique, or the kinematics script can't match fish to videos
   if(any(duplicated(paste(scanOut$Family, scanOut$Animal.ID)))) {
