@@ -559,8 +559,9 @@ rm(list=ls())
 
   # Family and individual for the soft-only fish
   noID <- is.na(scanOut$Family)
-  scanOut$Family[noID]    <- paste0(familyPrefix, sapply(strsplit(scanOut$specimen[noID], "_"), `[`, 2))
-  scanOut$Animal.ID[noID] <- sapply(strsplit(scanOut$specimen[noID], "_"), `[`, 3)
+    # vapply, so nothing changes when there are no soft-only fish (sapply would turn Animal.ID into a list, which write.csv can't save)
+  scanOut$Family[noID]    <- paste0(familyPrefix, vapply(strsplit(scanOut$specimen[noID], "_"), `[`, character(1), 2))
+  scanOut$Animal.ID[noID] <- vapply(strsplit(scanOut$specimen[noID], "_"), `[`, character(1), 3)
 
   # Each family-individual pair must be unique, or the kinematics script can't match fish to videos
   if(any(duplicated(paste(scanOut$Family, scanOut$Animal.ID)))) {
